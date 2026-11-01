@@ -35,8 +35,15 @@ type Config struct {
 	GroupName string `json:"groupName"`
 	// ProtectedAppPath is the application whose network access is restricted.
 	ProtectedAppPath string `json:"protectedAppPath"`
-	// VPNAppPath is the VPN application whose tunnel interface is the only permitted route.
+	// VPNAppPath is a VPN application whose tunnel interface is the only permitted route (kept for old configs;
+	// VPNAppPaths is the list form and both are used).
 	VPNAppPath string `json:"vpnAppPath"`
+	// VPNAppPaths are the VPN applications whose tunnels are accepted. The tunnel counts as alive while one of them is
+	// running and one tunnel interface carries the default route.
+	VPNAppPaths []string `json:"vpnAppPaths"`
+	// VPNDetection is "app" (default: a process of one of the VPN apps must be running) or "any" (any tunnel interface
+	// that carries the default route is accepted, whatever app made it: Tailscale exit node, WireGuard, Clash TUN, ...).
+	VPNDetection string `json:"vpnDetection"`
 	// EnforceLauncherOnly kills protected-app processes that were not started through the launcher.
 	EnforceLauncherOnly bool `json:"enforceLauncherOnly"`
 	Notify              bool `json:"notify"`
@@ -58,6 +65,8 @@ func Default() Config {
 		GroupName:               "_" + Name,
 		ProtectedAppPath:        "/Applications/Claude.app",
 		VPNAppPath:              "/Applications/AmneziaVPN.app",
+		VPNAppPaths:             []string{"/Applications/AmneziaVPN.app", "/Applications/AmneziaWG.app"},
+		VPNDetection:            "app",
 		EnforceLauncherOnly:     true,
 		Notify:                  true,
 		LoopbackBlockPorts:      []int{7890, 7891, 7892, 7897, 9090, 9097},
@@ -78,4 +87,17 @@ func Load(path string) Config {
 		return Default()
 	}
 	return c
+}
+
+// VPNApps returns the configured VPN applications without duplicates or empty entries.
+func (c Config) VPNApps() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range append(append([]string{}, c.VPNAppPaths...), c.VPNAppPath) {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
 }

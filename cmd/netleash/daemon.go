@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -43,6 +44,8 @@ type daemon struct {
 	// state owned by the slow loop (tick)
 	learned     map[string]bool
 	lastRules   string
+	subnets     []netip.Prefix // attached physical subnets (cache)
+	subnetsAt   time.Time
 	iface       string // effective VPN interface ("" = down)
 	nilStreak   int
 	tickCount   int
@@ -72,8 +75,8 @@ func runDaemon() {
 	}
 	log.SetFlags(0)
 	d := &daemon{cfg: config.Load(config.ConfigPath), learned: loadLearned()}
-	d.logf("started (version %s); group %s, protected app %s, VPN app %s",
-		version, d.cfg.GroupName, d.cfg.ProtectedAppPath, d.cfg.VPNAppPath)
+	d.logf("started (version %s); group %s, protected app %s, VPN apps %s (detection: %s)",
+		version, d.cfg.GroupName, d.cfg.ProtectedAppPath, strings.Join(d.cfg.VPNApps(), ", "), d.cfg.VPNDetection)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
@@ -117,34 +120,41 @@ func (d *daemon) lookupGID() uint32 {
 
 // ---- VPN detection ----
 
-// detectVPNInterface returns the utun interface of the live VPN, or "".
+// detectVPNInterface returns the tunnel interface to allow, or "".
+//
+// "app" mode (default): a process of one of the VPN apps must be running; utunN names on its command line are tried
+// first (tun2socks), otherwise the tunnel that carries the default route is taken (WireGuard/AmneziaWG ask the kernel
+// for "utun" and the number is chosen later, and a NetworkExtension tunnel is created by the system).
+// "any" mode: no app is required, any tunnel carrying the default route is taken.
 func (d *daemon) detectVPNInterface(procs []proc.Proc) string {
+	var explicit []string
 	seen := map[string]bool{}
-	var candidates []string
+	running := false
 	for _, p := range procs {
-		if !strings.HasPrefix(p.Path, d.cfg.VPNAppPath+"/") {
-			continue
-		}
-		_, args := proc.Args(p.PID)
-		for _, n := range netinfo.UtunNames(strings.Join(args, " ")) {
-			if !seen[n] {
-				seen[n] = true
-				candidates = append(candidates, n)
+		for _, app := range d.cfg.VPNApps() {
+			if !strings.HasPrefix(p.Path, app+"/") {
+				continue
+			}
+			running = true
+			_, args := proc.Args(p.PID)
+			for _, n := range netinfo.UtunNames(strings.Join(args, " ")) {
+				if !seen[n] {
+					seen[n] = true
+					explicit = append(explicit, n)
+				}
 			}
 		}
 	}
-	if len(candidates) == 0 {
+	if !running && d.cfg.VPNDetection != "any" {
 		return ""
 	}
-	sort.Strings(candidates)
+	sort.Strings(explicit)
+	list, _ := sys.Run("/sbin/ifconfig", "-l")
 	routes, _ := sys.Run("/usr/sbin/netstat", "-rn", "-f", "inet")
-	for _, c := range candidates {
-		ifc, _ := sys.Run("/sbin/ifconfig", c)
-		if netinfo.InterfaceIsUp(ifc) && netinfo.HasDefaultRoute(routes, c) {
-			return c
-		}
-	}
-	return ""
+	return netinfo.PickTunnel(explicit, netinfo.UtunInterfaces(list), routes, func(n string) string {
+		out, _ := sys.Run("/sbin/ifconfig", n)
+		return out
+	})
 }
 
 // ---- VPN DNS auto-detection ----
@@ -201,6 +211,24 @@ func (d *daemon) learnVPNDNS(iface string) {
 	d.logf("detected VPN DNS servers: %s", strings.Join(added, ", "))
 }
 
+// attachedSubnets returns the subnets directly attached to physical interfaces (cached for a few seconds: it costs one
+// ifconfig per interface).
+func (d *daemon) attachedSubnets() []netip.Prefix {
+	if time.Since(d.subnetsAt) < 5*time.Second {
+		return d.subnets
+	}
+	var subnets []netip.Prefix
+	for _, i := range physicalInterfaces() {
+		out, _ := sys.Run("/sbin/ifconfig", i)
+		subnets = append(subnets, netinfo.Subnets(out)...)
+	}
+	d.subnets, d.subnetsAt = subnets, time.Now()
+	return subnets
+}
+
+// vpnDNSBlockList is the VPN's DNS servers that must not be reachable through physical interfaces. An address that lies
+// inside a subnet of the network we are on now (a carrier network whose gateway is 100.64.0.1, say) is that network's
+// own server and must keep working, so it is left out.
 func (d *daemon) vpnDNSBlockList() []string {
 	set := map[string]bool{}
 	for _, s := range d.cfg.VPNDNSServers {
@@ -209,9 +237,10 @@ func (d *daemon) vpnDNSBlockList() []string {
 	for s := range d.learned {
 		set[s] = true
 	}
+	attached := d.attachedSubnets()
 	var out []string
 	for s := range set {
-		if _, err := parseAddr(s); err == nil {
+		if _, err := parseAddr(s); err == nil && !netinfo.OnLink(s, attached) {
 			out = append(out, s)
 		}
 	}

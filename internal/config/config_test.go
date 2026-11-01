@@ -34,3 +34,19 @@ func TestLoadMissingOrBrokenFileGivesDefaults(t *testing.T) {
 		t.Errorf("broken file must yield defaults: %+v", c)
 	}
 }
+
+func TestVPNAppsMergesBothForms(t *testing.T) {
+	c := Default()
+	if len(c.VPNApps()) != 2 {
+		t.Errorf("default must list both Amnezia apps once each: %v", c.VPNApps())
+	}
+	c.VPNAppPaths = nil
+	c.VPNAppPath = "/Applications/Other.app"
+	if got := c.VPNApps(); len(got) != 1 || got[0] != "/Applications/Other.app" {
+		t.Errorf("old single-path config must still work: %v", got)
+	}
+	c.VPNAppPath = ""
+	if len(c.VPNApps()) != 0 {
+		t.Errorf("no apps configured: %v", c.VPNApps())
+	}
+}

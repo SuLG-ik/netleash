@@ -3,6 +3,15 @@
 Versions follow [Semantic Versioning](https://semver.org). The version of a release is the content of the `VERSION`
 file and the git tag `vX.Y.Z`; local builds are marked `X.Y.Z-dev+<commit>`.
 
+## 0.2.3 — unreleased
+
+- VPN detection no longer depends on the VPN app naming its tunnel: when it does not (WireGuard/AmneziaWG ask the kernel for
+  "utun"), the tunnel that carries the default route is used. New settings `vpnAppPaths` (default: AmneziaVPN and AmneziaWG)
+  and `vpnDetection` (`app` | `any`). A tunnel from an unconfigured app is still refused (fail-closed).
+- A VPN DNS address that lies inside the current network's own subnet is no longer blocked (it would have broken DNS on
+  networks that use such an address as their resolver).
+- README: "What happens when…" (network change, other VPN, two tunnels).
+
 ## 0.2.2 — 2026-11-01
 
 - New **Settings** window in the menu bar app: language (system / English / Russian, also used by the `netleash`
