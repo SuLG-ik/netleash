@@ -52,8 +52,10 @@ After Claude updates itself it relaunches unprotected and gets closed; just open
 Pick one. All three install the same files. **Read what you are about to run:** the installer uses `sudo` to install a
 root daemon and a setuid helper.
 
-The installer terminates any Claude started outside Netleash. Save your work (including a Claude Code session running
-inside Claude) first.
+If Claude is running, the installer **closes it** (a normal quit first, then by force) and **reopens it through Netleash**
+when the installation finishes — on a first install and on every update. Unsaved work in Claude (including a Claude Code
+session running inside it) is lost, so save it first. If you run the installer from a terminal *inside* Claude, it
+leaves Claude open instead (closing it would end the installer).
 
 ### Option 1 — one command
 

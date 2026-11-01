@@ -18,15 +18,56 @@ LABEL=org.netleash.daemon
 AGENT_LABEL=org.netleash.app
 GROUP=_netleash
 
+PROTECTED_APP="$(/usr/bin/plutil -extract protectedAppPath raw -o - /usr/local/etc/$N/config.json 2>/dev/null || true)"
+[ -n "$PROTECTED_APP" ] || PROTECTED_APP=/Applications/Claude.app
+APP_NAME="$(basename "$PROTECTED_APP" .app)"
+
+# PIDs of the protected app (the Squirrel updater is not part of it)
+app_pids() {
+  pgrep -f "$PROTECTED_APP/Contents/" 2>/dev/null | while read -r p; do
+    case "$(ps -o command= -p "$p" 2>/dev/null)" in *Squirrel.framework*) ;; *) echo "$p" ;; esac
+  done
+}
+# Is this installer itself running inside the protected app (e.g. in a terminal of Claude Code)? Then closing it would
+# end the installer too, so it is left open: the update does not require closing it.
+inside_protected_app() {
+  p=$$
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    case "$(ps -o command= -p "$p" 2>/dev/null)" in *"$PROTECTED_APP/Contents/"*) return 0 ;; esac
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+  done
+  return 1
+}
+# Quits the protected app (gracefully first, then by force). Returns 0 if it had to be closed.
+close_protected_app() {
+  [ -n "$(app_pids)" ] || return 1
+  if inside_protected_app; then
+    echo "The installer is running inside $APP_NAME: leaving it open (it is not required to close it)."
+    return 1
+  fi
+  echo "Closing $APP_NAME ..."
+  launchctl asuser "$USER_UID" sudo -u "$USER_NAME" /usr/bin/osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+  for _ in $(seq 1 "${NETLEASH_CLOSE_WAIT:-25}"); do [ -z "$(app_pids)" ] && return 0; sleep 0.4; done
+  app_pids | xargs kill -9 2>/dev/null || true
+  sleep 0.5
+  return 0
+}
+[ "${NETLEASH_SOURCE_ONLY:-}" = "1" ] && return 0 2>/dev/null
+
 echo "Netleash $(./netleash version | awk '{print $2}')"
 echo "This installs a root daemon and a setuid helper (see README: Disclaimer, Limitations)."
 echo "Supported setup: Claude.app + AmneziaVPN with its Kill Switch turned OFF, macOS 26, Apple Silicon."
-echo "After installation, any Claude.app started outside Netleash is terminated immediately."
-echo "Save your work and quit Claude first (including a Claude Code session running inside it)."
+echo "If $APP_NAME is running, it is closed now and reopened through Netleash when the installation finishes."
+echo "Unsaved work in it (including a Claude Code session) is lost: save it first."
 if [ "${1:-}" != "-y" ] && [ "${NETLEASH_YES:-}" != "1" ]; then
   read -r -p "Continue? [y/N] " a || a=n
   [ "$a" = y ] || { echo "Aborted."; exit 1; }
 fi
+# keep going if the terminal disappears while the app (and with it possibly the terminal's window) is being closed
+trap '' HUP
+
+WAS_RUNNING=0
+if close_protected_app; then WAS_RUNNING=1; fi
 
 # 1. Group
 if ! dscl . -read /Groups/$GROUP >/dev/null 2>&1; then
@@ -107,4 +148,9 @@ fi
 
 sleep 2
 echo; netleash status || true
+if [ "$WAS_RUNNING" = 1 ] && [ -d /Applications/Netleash.app ]; then
+  for _ in $(seq 1 30); do netleash status >/dev/null 2>&1 && break; sleep 0.5; done
+  echo "Reopening $APP_NAME through Netleash ..."
+  launchctl asuser "$USER_UID" sudo -u "$USER_NAME" /usr/bin/open -a /Applications/Netleash.app || true
+fi
 echo "Done. Open “Netleash” from /Applications (or the menu bar icon → Open Claude). Check the setup: netleash test"

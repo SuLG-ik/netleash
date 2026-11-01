@@ -3,7 +3,7 @@
 Versions follow [Semantic Versioning](https://semver.org). The version of a release is the content of the `VERSION`
 file and the git tag `vX.Y.Z`; local builds are marked `X.Y.Z-dev+<commit>`.
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-11-01
 
 - `netleash update`: checks GitHub for a newer release and, after confirmation, downloads it, verifies its SHA-256
   checksum and runs its installer. Requests go **through the VPN** by default (`--direct` to bypass; `--check`,
@@ -17,6 +17,9 @@ file and the git tag `vX.Y.Z`; local builds are marked `X.Y.Z-dev+<commit>`.
   notification did or did not appear to `~/Library/Logs/Netleash.log`, and, when macOS does not allow notifications for
   the app (common for ad-hoc signed apps), shows its own banner (top right, with the Netleash icon) instead.
   New menu item: Notification settings…
+- The installer now closes Claude by itself (normal quit first, then by force) and reopens it through Netleash when it
+  finishes, on installs and updates. It does not do this when it is run from a terminal inside Claude (that would end
+  the installer), and it ignores the terminal hang-up while Claude closes.
 - Unit tests for version comparison, checksum verification and safe archive extraction.
 
 ## 0.1.0 — 2026-11-01

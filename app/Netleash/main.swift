@@ -425,7 +425,7 @@ final class App: NSObject, NSApplicationDelegate {
     func offerUpdate(current: String, latest: String, url: String?) {
         let a = NSAlert()
         a.messageText = "Netleash \(latest) is available"
-        a.informativeText = "You have \(current). The update is downloaded through the VPN, its SHA-256 checksum is verified, and you are asked for your administrator password to install it. The menu bar app restarts afterwards."
+        a.informativeText = "You have \(current). The update is downloaded through the VPN and its SHA-256 checksum is verified; you are asked for your administrator password to install it. Claude is closed during the update and reopened afterwards (save your work first), and this menu bar app restarts."
         a.addButton(withTitle: "Update")
         a.addButton(withTitle: "Release notes")
         a.addButton(withTitle: "Later")
