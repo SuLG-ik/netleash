@@ -3,7 +3,7 @@
 Versions follow [Semantic Versioning](https://semver.org). The version of a release is the content of the `VERSION`
 file and the git tag `vX.Y.Z`; local builds are marked `X.Y.Z-dev+<commit>`.
 
-## 0.2.2 — unreleased
+## 0.2.2 — 2026-11-01
 
 - New **Settings** window in the menu bar app: language (system / English / Russian, also used by the `netleash`
   command), Netleash banners, daily update check, "Check for updates…", start at login. These items moved out of the menu;
