@@ -1,0 +1,7 @@
+dist/
+build/
+.DS_Store
+*.zip
+*.dmg
+*.log
+.claude/

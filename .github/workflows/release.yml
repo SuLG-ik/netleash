@@ -1,0 +1,34 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: NETLEASH_VERSION="${GITHUB_REF_NAME}" ./build.sh
+      - name: Installer self-check
+        run: NETLEASH_BASE_URL="file://$PWD/dist" NETLEASH_DRY_RUN=1 sh get.sh
+      - name: Attest build provenance
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/netleash-darwin-arm64.tar.gz
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=""
+          case "$GITHUB_REF_NAME" in *-*) flags="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" $flags --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
+            dist/netleash-darwin-arm64.tar.gz dist/SHA256SUMS get.sh

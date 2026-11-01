@@ -1,0 +1,43 @@
+name: build
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Shell syntax
+        run: |
+          for f in build.sh packaging/*.sh; do bash -n "$f"; done
+          sh -n get.sh
+      - run: go vet ./...
+      - run: go test ./...
+  build:
+    runs-on: macos-latest
+    needs: test
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build release archive
+        run: NETLEASH_VERSION=ci-${GITHUB_SHA::7} ./build.sh
+      - name: Installer self-check (download, verify, extract; installs nothing)
+        run: |
+          NETLEASH_BASE_URL="file://$PWD/dist" NETLEASH_DRY_RUN=1 sh get.sh
