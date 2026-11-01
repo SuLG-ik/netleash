@@ -37,7 +37,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build release archive
-        run: NETLEASH_VERSION=ci-${GITHUB_SHA::7} ./build.sh
+        run: ./build.sh
       - name: Installer self-check (download, verify, extract; installs nothing)
         run: |
           NETLEASH_BASE_URL="file://$PWD/dist" NETLEASH_DRY_RUN=1 sh get.sh

@@ -15,8 +15,13 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: Tag must match the VERSION file
+        run: |
+          want="v$(tr -d '[:space:]' < VERSION)"
+          base="${GITHUB_REF_NAME%%-*}"
+          [ "$base" = "$want" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION ($want)"; exit 1; }
       - name: Build
-        run: NETLEASH_VERSION="${GITHUB_REF_NAME}" ./build.sh
+        run: NETLEASH_RELEASE=1 ./build.sh
       - name: Installer self-check
         run: NETLEASH_BASE_URL="file://$PWD/dist" NETLEASH_DRY_RUN=1 sh get.sh
       - name: Attest build provenance

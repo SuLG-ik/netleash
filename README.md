@@ -23,6 +23,23 @@ Right now the project works **only** with this exact stack:
 Anything else (other apps, other VPNs, other macOS versions, other operating systems) is **unsupported and untested**.
 Support for other applications (e.g. Codex), other VPNs and other platforms is planned, see the [Roadmap](#roadmap).
 
+## ⚠️ Claude no longer opens the usual way
+
+After installation **Claude must be started through Netleash — nothing else**. Opening `Claude.app` any other way
+(Dock icon of Claude, Spotlight, Finder, `open -a Claude`, a login item, an auto-update relaunch) gets it **terminated
+within ~50 ms** and you see a "App closed" notification. This is deliberate: an unprotected Claude would reach the
+network without the VPN.
+
+Start Claude one of these ways:
+
+- the **menu bar icon** (shield / lock) → **Open Claude**;
+- **Netleash** in `/Applications` (double-click, Spotlight, or pin it to the Dock instead of Claude);
+- the terminal: `netleash run /Applications/Claude.app/Contents/MacOS/Claude`.
+
+Tip: remove Claude from your Dock and pin **Netleash** there. If you want the old behaviour back — even temporarily — use
+the menu bar icon → *Emergency rollback*, or `netleash panic`, or uninstall (see [Update, rollback, uninstall](#update-rollback-uninstall)).
+After Claude updates itself it relaunches unprotected and gets closed; just open it again via Netleash.
+
 ## Install
 
 Pick one. All three install the same files. **Read what you are about to run:** the installer uses `sudo` to install a
@@ -78,6 +95,7 @@ second daemon or a second Claude: there is one daemon per system, and a running 
 Then verify:
 
 ```bash
+netleash version  # e.g. "netleash 0.1.0 (commit abc1234, built …, darwin/arm64)"
 netleash status   # is protection armed, is the VPN alive
 netleash test     # a forced connection through a physical interface MUST be blocked
 ```
@@ -85,6 +103,12 @@ netleash test     # a forced connection through a physical interface MUST be blo
 and test manually: with Claude running, switch the VPN off — its network must stop at once — and on again — it must
 recover without restarting the app. A response interrupted mid-stream cannot resume (its TCP connection died with the
 tunnel); resend the message.
+
+### Versions
+
+Netleash uses [Semantic Versioning](https://semver.org); see [CHANGELOG.md](CHANGELOG.md). A release is a git tag
+`vX.Y.Z` whose number equals the `VERSION` file. `netleash version` and the menu bar app show it; builds from a
+checkout are marked `X.Y.Z-dev+<commit>`.
 
 ### Update, rollback, uninstall
 

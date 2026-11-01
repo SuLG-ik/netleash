@@ -16,6 +16,9 @@ import (
 	"time"
 )
 
+// Set at build time: -ldflags "-X main.version=0.1.0".
+var version = "dev"
+
 const statusPath = "/var/run/netleash/status.json"
 
 func die(code int, format string, a ...any) {
@@ -40,6 +43,10 @@ func trustedRead(path string) ([]byte, error) {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println("netleash-exec", version)
+		return
+	}
 	if len(os.Args) < 2 {
 		die(64, "usage: netleash-exec <program> [arguments...]")
 	}

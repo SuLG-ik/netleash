@@ -4,20 +4,32 @@
 #
 # Builds the release layout into dist/netleash-darwin-<arch>/ and packs dist/netleash-darwin-<arch>.tar.gz.
 # Requires Go and (for the menu bar app) Xcode or the Command Line Tools. No sudo needed.
-#   NETLEASH_VERSION=v1.2.3 ./build.sh
+#   ./build.sh                       local build:   0.1.0-dev+<commit>
+#   NETLEASH_RELEASE=1 ./build.sh    release build: 0.1.0 (from the VERSION file)
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="${NETLEASH_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+# Version: the VERSION file is the single source of truth (semantic version). Release builds (NETLEASH_RELEASE=1,
+# set by the release workflow after it checks the tag) use it as is; local builds are marked "<version>-dev+<commit>".
+BASE="$(tr -d '[:space:]' < VERSION)"
+COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if [ "${NETLEASH_RELEASE:-}" = "1" ]; then
+  VERSION="$BASE"
+else
+  VERSION="$BASE-dev+$COMMIT"
+  git diff --quiet HEAD 2>/dev/null || VERSION="$VERSION.dirty"
+fi
+DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 case "$(uname -m)" in arm64) ARCH=arm64 ;; x86_64) ARCH=amd64 ;; *) echo "unsupported architecture"; exit 1 ;; esac
 NAME="netleash-darwin-$ARCH"
 OUT="dist/$NAME"
 rm -rf dist && mkdir -p "$OUT"
 
-echo "==> Go binaries ($VERSION)"
+echo "==> Netleash $VERSION ($ARCH)"
+echo "==> Go binaries"
 export CGO_ENABLED=0 GOOS=darwin GOARCH="$ARCH"
 go test ./...
-go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUT/netleash" ./cmd/netleash
+go build -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE" -o "$OUT/netleash" ./cmd/netleash
 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUT/netleash-exec" ./cmd/netleash-exec
 
 echo "==> Menu bar app"
@@ -35,7 +47,8 @@ if command -v swiftc >/dev/null; then
  <key>CFBundleExecutable</key><string>Netleash</string>
  <key>CFBundleIconFile</key><string>icon.icns</string>
  <key>CFBundlePackageType</key><string>APPL</string>
- <key>CFBundleShortVersionString</key><string>$VERSION</string>
+ <key>CFBundleShortVersionString</key><string>$BASE</string>
+ <key>CFBundleVersion</key><string>$VERSION</string>
  <key>LSUIElement</key><true/>
  <key>LSMinimumSystemVersion</key><string>13.0</string>
 </dict></plist>

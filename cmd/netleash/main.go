@@ -7,10 +7,24 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 )
 
-// version is set at build time: -ldflags "-X main.version=v1.2.3".
-var version = "dev"
+// Set at build time by build.sh: -ldflags "-X main.version=0.1.0 -X main.commit=abc1234 -X main.date=2026-01-01T00:00:00Z".
+// Release builds carry a clean semantic version; local builds are marked 0.1.0-dev+<commit>.
+var (
+	version = "dev"
+	commit  = ""
+	date    = ""
+)
+
+func versionString() string {
+	s := "netleash " + version
+	if commit != "" || date != "" {
+		s += fmt.Sprintf(" (commit %s, built %s, %s/%s)", commit, date, runtime.GOOS, runtime.GOARCH)
+	}
+	return s
+}
 
 const usage = `netleash — confine an application's network access to a VPN tunnel
 
@@ -51,7 +65,7 @@ func main() {
 		}
 		execTool(helperPath, os.Args[2:]...)
 	case "version", "--version", "-v":
-		fmt.Println("netleash", version)
+		fmt.Println(versionString())
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	default:

@@ -33,3 +33,10 @@ go vet ./...
 
 Layout: `cmd/` (binaries), `internal/` (pure, tested logic), `app/` (Swift menu bar app), `packaging/` (installer and
 rollback scripts), `get.sh` (bootstrap). Platform-specific code lives behind build tags so other platforms can be added later.
+
+## Releasing (maintainer)
+
+1. Update `VERSION` (semantic version) and `CHANGELOG.md`; merge to `main`.
+2. Tag exactly `v<VERSION>` (a suffix such as `-rc1` makes it a pre-release) and push the tag.
+3. The `release` workflow checks the tag against `VERSION`, builds on GitHub's runner, and publishes the archive,
+   `SHA256SUMS` and `get.sh` (plus a build-provenance attestation for public repositories).

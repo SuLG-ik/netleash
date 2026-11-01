@@ -103,6 +103,9 @@ final class App: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         header.isEnabled = false
         menu.addItem(header)
+        let ver = NSMenuItem(title: "Netleash \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")", action: nil, keyEquivalent: "")
+        ver.isEnabled = false
+        menu.addItem(ver)
         menu.addItem(.separator())
         add(menu, "Open Claude", #selector(openProtectedApp))
         menu.addItem(.separator())
