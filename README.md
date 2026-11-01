@@ -5,6 +5,8 @@
   </picture>
 </p>
 
+<p align="center"><b>English</b> · <a href="README.ru.md">Русский</a></p>
+
 # Netleash
 
 *A kernel-level network leash for macOS apps: an application may reach the network only through the route you choose.*
@@ -112,6 +114,12 @@ netleash test     # a forced connection through a physical interface MUST be blo
 and test manually: with Claude running, switch the VPN off — its network must stop at once — and on again — it must
 recover without restarting the app. A response interrupted mid-stream cannot resume (its TCP connection died with the
 tunnel); resend the message.
+
+### Language
+
+The menu bar app and the command-line output follow the system language (English or Russian). Force one with
+`NETLEASH_LANG=en` or `NETLEASH_LANG=ru`. The installers (`install.sh`, `get.sh`) are English only. A Russian version of
+this document: [README.ru.md](README.ru.md).
 
 ### Versions
 
@@ -247,7 +255,7 @@ Not implemented yet; nothing below is supported today:
 - support with the Amnezia kill switch enabled (a layer that survives `pf` reloads);
 - other operating systems (the core is Go with the platform-specific parts isolated; Linux would use a different
   firewall backend);
-- notarized releases, more automated tests, localization.
+- notarized releases, more automated tests, more languages.
 
 ## Contributing & security
 

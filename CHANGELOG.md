@@ -3,6 +3,13 @@
 Versions follow [Semantic Versioning](https://semver.org). The version of a release is the content of the `VERSION`
 file and the git tag `vX.Y.Z`; local builds are marked `X.Y.Z-dev+<commit>`.
 
+## 0.2.1 — unreleased
+
+- Russian localization: the menu bar app (menus, dialogs, banners, notifications) and the command-line output
+  (`status`, `test`, `update`, help) follow the system language; override with `NETLEASH_LANG=en|ru`. Documents have
+  Russian versions (`README.ru.md`, `CONTRIBUTING.ru.md`, `SECURITY.ru.md`, `SUPPORT.ru.md`, `CODE_OF_CONDUCT.ru.md`).
+- Tests that translations keep their format placeholders (`internal/i18n`, `app/check-l10n.py`).
+
 ## 0.2.0 — 2026-11-01
 
 - `netleash update`: checks GitHub for a newer release and, after confirmation, downloads it, verifies its SHA-256

@@ -1,3 +1,5 @@
+**English** · [Русский](SECURITY.ru.md)
+
 # Security policy
 
 This project installs a root daemon and a setuid-root helper, so security reports are taken seriously, but it is an

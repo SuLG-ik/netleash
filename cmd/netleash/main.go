@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+
+	"github.com/sedooj/netleash/internal/i18n"
 )
 
 // Set at build time by build.sh: -ldflags "-X main.version=0.1.0 -X main.commit=abc1234 -X main.date=2026-01-01T00:00:00Z".
@@ -25,21 +27,6 @@ func versionString() string {
 	}
 	return s
 }
-
-const usage = `netleash — confine an application's network access to a VPN tunnel
-
-usage: netleash <command>
-
-  status              is protection armed, is the VPN alive
-  test                leak test: a forced connection through a physical interface MUST be blocked
-  panic               emergency rollback: remove all protection (asks for sudo)
-  resume              restore protection after panic (asks for sudo)
-  update [flags]      check for a newer release and install it (see: netleash update --help)
-  log                 follow the daemon log
-  run <command...>    run a command under the same network confinement
-  version             print the version
-  daemon              run the root daemon (started by launchd; not for manual use)
-`
 
 func main() {
 	cmd := "status"
@@ -59,7 +46,7 @@ func main() {
 		os.Exit(cmdResume())
 	case "update":
 		if len(os.Args) > 2 && (os.Args[2] == "--help" || os.Args[2] == "-h") {
-			fmt.Print(updateUsage)
+			fmt.Print(i18n.UsageUpdate())
 			return
 		}
 		os.Exit(cmdUpdate(os.Args[2:]))
@@ -67,16 +54,16 @@ func main() {
 		execTool("/usr/bin/tail", "-f", logPath)
 	case "run":
 		if len(os.Args) < 3 {
-			fmt.Fprint(os.Stderr, usage)
+			fmt.Fprint(os.Stderr, i18n.UsageMain())
 			os.Exit(64)
 		}
 		execTool(helperPath, os.Args[2:]...)
 	case "version", "--version", "-v":
 		fmt.Println(versionString())
 	case "help", "--help", "-h":
-		fmt.Print(usage)
+		fmt.Print(i18n.UsageMain())
 	default:
-		fmt.Fprint(os.Stderr, usage)
+		fmt.Fprint(os.Stderr, i18n.UsageMain())
 		os.Exit(64)
 	}
 }

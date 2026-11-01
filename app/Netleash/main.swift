@@ -25,6 +25,12 @@ let lastCheckKey = "lastUpdateCheck"
 let notifiedKey = "notifiedUpdateVersion"
 let launchLog = NSHomeDirectory() + "/Library/Logs/Netleash-launch.log"
 
+/// Localized string: the English text is the key (see Resources/ru.lproj/Localizable.strings).
+func L(_ key: String, _ args: CVarArg...) -> String {
+    let f = NSLocalizedString(key, comment: "")
+    return args.isEmpty ? f : String(format: f, arguments: args)
+}
+
 // MARK: - Protection state
 
 enum State {
@@ -55,9 +61,9 @@ enum State {
     }
     var title: String {
         switch self {
-        case .up(let i): return "VPN connected (\(i)) — network allowed"
-        case .down: return "VPN disconnected — network blocked"
-        case .broken(let why): return "Protection is not working: \(why)"
+        case .up(let i): return L("VPN connected (%@) — network allowed", i)
+        case .down: return L("VPN disconnected — network blocked")
+        case .broken(let why): return L("Protection is not working: %@", why)
         }
     }
 }
@@ -72,15 +78,23 @@ func handleEvents() {
     guard let last = lastEventSeq else { lastEventSeq = seq; return }   // first read: do not replay old events
     guard seq > last else { return }
     lastEventSeq = seq
-    Notifier.shared.post(ev["title"] as? String ?? "Netleash", ev["text"] as? String ?? "")
+    var title = ev["title"] as? String ?? "Netleash"
+    var text = ev["text"] as? String ?? ""
+    switch ev["kind"] as? String {   // known kinds are shown in the user's language
+    case "vpn_down": title = L("VPN disconnected"); text = L("Network access is blocked.")
+    case "vpn_up": title = L("VPN connected"); text = L("Network access restored through the VPN.")
+    case "app_closed": title = L("App closed"); text = L("Start it only through Netleash.")
+    default: break
+    }
+    Notifier.shared.post(title, text)
 }
 
 func readState() -> State {
     guard let data = FileManager.default.contents(atPath: statusPath),
           let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let ts = d["ts"] as? Double else { return .broken("daemon is not running") }
-    if Date().timeIntervalSince1970 - ts > 5 { return .broken("daemon is not responding") }
-    if (d["armed"] as? Bool) != true { return .broken((d["note"] as? String) ?? "pf is not armed") }
+          let ts = d["ts"] as? Double else { return .broken(L("daemon is not running")) }
+    if Date().timeIntervalSince1970 - ts > 5 { return .broken(L("daemon is not responding")) }
+    if (d["armed"] as? Bool) != true { return .broken((d["note"] as? String) ?? L("pf is not armed")) }
     return (d["vpnUp"] as? Bool) == true ? .up((d["iface"] as? String) ?? "?") : .down
 }
 
@@ -90,8 +104,8 @@ func readState() -> State {
 func runAsAdmin(_ cmd: String) -> String {
     var err: NSDictionary?
     let r = NSAppleScript(source: "do shell script \"\(cmd)\" with administrator privileges")?.executeAndReturnError(&err)
-    if let e = err { return "Error: \(e[NSAppleScript.errorMessage] ?? e)" }
-    return r?.stringValue ?? "Done"
+    if let e = err { return L("Error: %@", "\(e[NSAppleScript.errorMessage] ?? e)") }
+    return r?.stringValue ?? L("Done")
 }
 
 func alert(_ title: String, _ text: String = "", style: NSAlert.Style = .informational) {
@@ -264,10 +278,10 @@ func spawnDisclaimed(_ path: String, _ args: [String]) -> pid_t? {
 final class App: NSObject, NSApplicationDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let header = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    let loginItem = NSMenuItem(title: "Start at login", action: nil, keyEquivalent: "")
-    let testItem = NSMenuItem(title: "Run leak test…", action: nil, keyEquivalent: "")
-    let updateItem = NSMenuItem(title: "Check for updates…", action: nil, keyEquivalent: "")
-    let dailyItem = NSMenuItem(title: "Check for updates daily (through the VPN)", action: nil, keyEquivalent: "")
+    let loginItem = NSMenuItem(title: L("Start at login"), action: nil, keyEquivalent: "")
+    let testItem = NSMenuItem(title: L("Run leak test…"), action: nil, keyEquivalent: "")
+    let updateItem = NSMenuItem(title: L("Check for updates…"), action: nil, keyEquivalent: "")
+    let dailyItem = NSMenuItem(title: L("Check for updates daily (through the VPN)"), action: nil, keyEquivalent: "")
     var availableUpdate: String?   // set when a newer release is known
     var last = ""
     let background = CommandLine.arguments.contains("--background")
@@ -281,21 +295,21 @@ final class App: NSObject, NSApplicationDelegate {
         ver.isEnabled = false
         menu.addItem(ver)
         menu.addItem(.separator())
-        add(menu, "Open Claude", #selector(openProtectedApp))
+        add(menu, L("Open Claude"), #selector(openProtectedApp))
         menu.addItem(.separator())
         testItem.action = #selector(testLeaks); testItem.target = self; menu.addItem(testItem)
-        add(menu, "Show log", #selector(showLog))
-        add(menu, "Notification settings…", #selector(openNotificationSettings))
+        add(menu, L("Show log"), #selector(showLog))
+        add(menu, L("Notification settings…"), #selector(openNotificationSettings))
         menu.addItem(.separator())
         updateItem.action = #selector(checkForUpdatesAction); updateItem.target = self; menu.addItem(updateItem)
         dailyItem.action = #selector(toggleDaily); dailyItem.target = self; menu.addItem(dailyItem)
         menu.addItem(.separator())
         loginItem.action = #selector(toggleLogin); loginItem.target = self; menu.addItem(loginItem)
         menu.addItem(.separator())
-        add(menu, "Emergency rollback (remove protection)…", #selector(panic))
-        add(menu, "Restore protection", #selector(resume))
+        add(menu, L("Emergency rollback (remove protection)…"), #selector(panic))
+        add(menu, L("Restore protection"), #selector(resume))
         menu.addItem(.separator())
-        add(menu, "Quit", #selector(quit), key: "q")
+        add(menu, L("Quit"), #selector(quit), key: "q")
         menu.delegate = self
         item.menu = menu
         refresh()
@@ -346,7 +360,7 @@ final class App: NSObject, NSApplicationDelegate {
             return
         }
         guard let pid = spawnDisclaimed(helperPath, [protectedBinary]) else {
-            alert("Could not start the app", "Check the installation: netleash status", style: .critical)
+            alert(L("Could not start the app"), L("Check the installation: netleash status"), style: .critical)
             return
         }
         // The helper refuses to start when protection is not armed: say so instead of failing silently.
@@ -359,13 +373,13 @@ final class App: NSObject, NSApplicationDelegate {
             guard failedFast, code != 0 else { return }
             DispatchQueue.main.async {
                 let msg = (try? String(contentsOfFile: launchLog, encoding: .utf8)) ?? ""
-                alert("Not started: protection is not active", msg.isEmpty ? "Check: netleash status" : msg, style: .critical)
+                alert(L("Not started: protection is not active"), msg.isEmpty ? L("Check: netleash status") : msg, style: .critical)
             }
         }
     }
 
     @objc func testLeaks() {
-        testItem.title = "Testing…"
+        testItem.title = L("Testing…")
         testItem.isEnabled = false
         DispatchQueue.global().async {
             let p = Process()
@@ -376,9 +390,9 @@ final class App: NSObject, NSApplicationDelegate {
             let data = out.fileHandleForReading.readDataToEndOfFile()
             p.waitUntilExit()
             DispatchQueue.main.async {
-                self.testItem.title = "Run leak test…"
+                self.testItem.title = L("Run leak test…")
                 self.testItem.isEnabled = true
-                alert(p.terminationStatus == 0 ? "No leaks found" : "Leak test failed",
+                alert(p.terminationStatus == 0 ? L("No leaks found") : L("Leak test failed"),
                       String(decoding: data, as: UTF8.self), style: p.terminationStatus == 0 ? .informational : .critical)
             }
         }
@@ -392,11 +406,11 @@ final class App: NSObject, NSApplicationDelegate {
 
     @objc func panic() {
         let a = NSAlert()
-        a.messageText = "Remove all protection?"
-        a.informativeText = "The daemon will be stopped and the pf rules removed. The protected app will be able to use the network without the VPN until you choose “Restore protection”."
+        a.messageText = L("Remove all protection?")
+        a.informativeText = L("The daemon will be stopped and the pf rules removed. The protected app will be able to use the network without the VPN until you choose “Restore protection”.")
         a.alertStyle = .warning
-        a.addButton(withTitle: "Cancel")
-        a.addButton(withTitle: "Roll back")
+        a.addButton(withTitle: L("Cancel"))
+        a.addButton(withTitle: L("Roll back"))
         NSApp.activate(ignoringOtherApps: true)
         guard a.runModal() == .alertSecondButtonReturn else { return }
         alert(runAsAdmin("\(libexec)/panic.sh"))
@@ -426,18 +440,18 @@ final class App: NSObject, NSApplicationDelegate {
     @objc func checkForUpdatesAction() { checkForUpdates(userInitiated: true) }
 
     func checkForUpdates(userInitiated: Bool) {
-        if userInitiated { updateItem.title = "Checking…"; updateItem.isEnabled = false }
+        if userInitiated { updateItem.title = L("Checking…"); updateItem.isEnabled = false }
         runUpdate(["--check"]) { r in
-            self.updateItem.title = "Check for updates…"; self.updateItem.isEnabled = true
+            self.updateItem.title = L("Check for updates…"); self.updateItem.isEnabled = true
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastCheckKey)
             if let err = r["error"] as? String, !err.isEmpty {
-                if userInitiated { alert("Could not check for updates", err, style: .warning) }
+                if userInitiated { alert(L("Could not check for updates"), err, style: .warning) }
                 return
             }
             let current = r["current"] as? String ?? "?"
             guard (r["update"] as? Bool) == true, let latest = r["latest"] as? String else {
                 self.availableUpdate = nil
-                if userInitiated { alert("Netleash is up to date", "Version \(current).") }
+                if userInitiated { alert(L("Netleash is up to date"), L("Version %@.", current)) }
                 return
             }
             self.availableUpdate = latest
@@ -445,18 +459,18 @@ final class App: NSObject, NSApplicationDelegate {
                 self.offerUpdate(current: current, latest: latest, url: r["url"] as? String)
             } else if UserDefaults.standard.string(forKey: notifiedKey) != latest {
                 UserDefaults.standard.set(latest, forKey: notifiedKey)
-                Notifier.shared.post("Netleash update", "Version \(latest) is available. Open the Netleash menu to update.")
+                Notifier.shared.post(L("Netleash update"), L("Version %@ is available. Open the Netleash menu to update.", latest))
             }
         }
     }
 
     func offerUpdate(current: String, latest: String, url: String?) {
         let a = NSAlert()
-        a.messageText = "Netleash \(latest) is available"
-        a.informativeText = "You have \(current). The update is downloaded through the VPN and its SHA-256 checksum is verified; you are asked for your administrator password to install it. Claude is closed during the update and reopened afterwards (save your work first), and this menu bar app restarts."
-        a.addButton(withTitle: "Update")
-        a.addButton(withTitle: "Release notes")
-        a.addButton(withTitle: "Later")
+        a.messageText = L("Netleash %@ is available", latest)
+        a.informativeText = L("You have %@. The update is downloaded through the VPN and its SHA-256 checksum is verified; you are asked for your administrator password to install it. Claude is closed during the update and reopened afterwards (save your work first), and this menu bar app restarts.", current)
+        a.addButton(withTitle: L("Update"))
+        a.addButton(withTitle: L("Release notes"))
+        a.addButton(withTitle: L("Later"))
         NSApp.activate(ignoringOtherApps: true)
         switch a.runModal() {
         case .alertFirstButtonReturn: performUpdate()
@@ -466,17 +480,17 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     func performUpdate() {
-        updateItem.title = "Downloading update…"; updateItem.isEnabled = false
+        updateItem.title = L("Downloading update…"); updateItem.isEnabled = false
         runUpdate(["--download-only"]) { r in
-            self.updateItem.title = "Check for updates…"; self.updateItem.isEnabled = true
+            self.updateItem.title = L("Check for updates…"); self.updateItem.isEnabled = true
             guard let installer = r["installer"] as? String, let dir = r["dir"] as? String else {
-                alert("Update failed", (r["error"] as? String) ?? "unknown error", style: .critical)
+                alert(L("Update failed"), (r["error"] as? String) ?? L("unknown error"), style: .critical)
                 return
             }
             // The installer replaces this app and restarts it; the result dialog may not survive that.
             let outcome = runAsAdmin("\(installer) -y")
             try? FileManager.default.removeItem(atPath: dir)
-            alert("Update finished", outcome)
+            alert(L("Update finished"), outcome)
         }
     }
 
@@ -520,10 +534,15 @@ extension App: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         loginItem.state = loginEnabled ? .on : .off
         dailyItem.state = UserDefaults.standard.bool(forKey: updateDailyKey) ? .on : .off
-        updateItem.title = availableUpdate.map { "Update available: \($0)…" } ?? "Check for updates…"
+        updateItem.title = availableUpdate.map { L("Update available: %@…", $0) } ?? L("Check for updates…")
     }
 }
 
+if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--l10n" {
+    // Translation check: Netleash --l10n "Quit"   (the language follows the system, or: -AppleLanguages "(ru)")
+    print(L(CommandLine.arguments[2]))
+    exit(0)
+}
 if CommandLine.arguments.count >= 4, CommandLine.arguments[1] == "--render-toast" {
     // Layout check without a screen: Netleash --render-toast out.png "Title" "Text"
     _ = NSApplication.shared

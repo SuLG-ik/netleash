@@ -25,6 +25,8 @@ jobs:
         run: |
           for f in build.sh packaging/*.sh; do bash -n "$f"; done
           sh -n get.sh
+      - name: Translations of the menu bar app
+        run: python3 app/check-l10n.py
       - run: go vet ./...
       - run: go test ./...
   build:

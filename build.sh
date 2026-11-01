@@ -49,12 +49,16 @@ if command -v swiftc >/dev/null; then
  <key>CFBundlePackageType</key><string>APPL</string>
  <key>CFBundleShortVersionString</key><string>$BASE</string>
  <key>CFBundleVersion</key><string>$VERSION</string>
+ <key>CFBundleDevelopmentRegion</key><string>en</string>
+ <key>CFBundleLocalizations</key><array><string>en</string><string>ru</string></array>
  <key>LSUIElement</key><true/>
  <key>LSMinimumSystemVersion</key><string>13.0</string>
 </dict></plist>
 P
   # Brand assets: app icon and menu bar glyphs (see brand/)
   cp brand/Netleash.icns "$APP/Contents/Resources/icon.icns"
+  cp -R app/Netleash/Resources/ru.lproj "$APP/Contents/Resources/"
+  mkdir -p "$APP/Contents/Resources/en.lproj"
   cp brand/png/menubar-up@2x.png brand/png/menubar-down@2x.png brand/png/menubar-warn@2x.png "$APP/Contents/Resources/"
   codesign -f -s - "$APP" 2>/dev/null || true
 else

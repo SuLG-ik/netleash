@@ -1,3 +1,5 @@
+**English** · [Русский](CODE_OF_CONDUCT.ru.md)
+
 # Code of conduct
 
 Be respectful and constructive. Harassment, personal attacks, spam, demands for support or features, and posting

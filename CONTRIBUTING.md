@@ -1,3 +1,5 @@
+**English** · [Русский](CONTRIBUTING.ru.md)
+
 # Contributing
 
 Issues and pull requests are welcome. Please read this first.

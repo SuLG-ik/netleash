@@ -60,6 +60,7 @@ type daemon struct {
 // so it publishes the event in the status file and the menu bar app (running as the user) shows it.
 type event struct {
 	Seq   int64  `json:"seq"`
+	Kind  string `json:"kind"` // vpn_down, vpn_up, app_closed: the menu bar app shows localized text for known kinds
 	Title string `json:"title"`
 	Text  string `json:"text"`
 }
@@ -316,7 +317,7 @@ func (d *daemon) scanRogue() {
 	}
 	d.mu.Unlock()
 	if notifyNow {
-		d.notify("App closed", "Start it only through Netleash.")
+		d.notify("app_closed", "App closed", "Start it only through Netleash.")
 	}
 }
 
@@ -328,12 +329,12 @@ func killAll(ps []proc.Proc) {
 
 // ---- notifications and status ----
 
-func (d *daemon) notify(title, text string) {
+func (d *daemon) notify(kind, title, text string) {
 	if !d.cfg.Notify {
 		return
 	}
 	d.mu.Lock()
-	d.event = &event{Seq: time.Now().UnixMilli(), Title: title, Text: text}
+	d.event = &event{Seq: time.Now().UnixMilli(), Kind: kind, Title: title, Text: text}
 	d.mu.Unlock()
 	if !d.menuAppRunning() {
 		d.notifyFallback(title, text)
@@ -456,12 +457,12 @@ func (d *daemon) tick() {
 		case d.started && iface == "":
 			d.logf("VPN down -> protected app blocked")
 			if appRunning {
-				d.notify("VPN disconnected", "Network access is blocked.")
+				d.notify("vpn_down", "VPN disconnected", "Network access is blocked.")
 			}
 		case d.started:
 			d.logf("VPN up (%s) -> protected app allowed", iface)
 			if appRunning {
-				d.notify("VPN connected", "Network access restored through the VPN.")
+				d.notify("vpn_up", "VPN connected", "Network access restored through the VPN.")
 			}
 		case iface == "":
 			d.logf("VPN is not connected")

@@ -19,23 +19,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sedooj/netleash/internal/i18n"
 	"github.com/sedooj/netleash/internal/semver"
 	"github.com/sedooj/netleash/internal/update"
 )
-
-const updateUsage = `usage: netleash update [flags]
-
-Checks GitHub for a newer release and, after you confirm, downloads it, verifies its SHA-256 checksum and runs its
-installer with sudo. By default all network traffic goes THROUGH THE VPN (it is run inside the same network
-confinement as the protected app), so GitHub and your ISP do not see this Mac's real address.
-
-  --check            only report whether an update is available
-  --json             machine-readable output (used by the menu bar app)
-  --yes, -y          do not ask for confirmation
-  --direct           connect outside the VPN (works without VPN, but the connection is not protected)
-  --download-only    download and verify, print where the installer is, do not install
-  --version vX.Y.Z   take this release instead of the latest one
-`
 
 type updateResult struct {
 	Current   string `json:"current"`
@@ -64,7 +51,7 @@ func directFetcher(url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub answered %s for %s", resp.Status, url)
+		return nil, errors.New(i18n.T("GitHub answered %s for %s", resp.Status, url))
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 256<<20))
 }
@@ -78,9 +65,9 @@ func confinedFetcher(url string) ([]byte, error) {
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(errb.String())
 		if strings.Contains(msg, "protection is not active") {
-			return nil, errors.New("protection is not active: " + msg)
+			return nil, errors.New(i18n.T("protection is not active: %s", msg))
 		}
-		return nil, errors.New("could not reach GitHub through the VPN (is it connected?); use --direct to connect outside the VPN")
+		return nil, errors.New(i18n.T("could not reach GitHub through the VPN (is it connected?); use --direct to connect outside the VPN"))
 	}
 	return out.Bytes(), nil
 }
@@ -96,7 +83,7 @@ func cmdUpdate(args []string) int {
 	downloadOnly := fs.Bool("download-only", false, "")
 	pin := fs.String("version", "", "")
 	if err := fs.Parse(args); err != nil {
-		fmt.Fprint(os.Stderr, updateUsage)
+		fmt.Fprint(os.Stderr, i18n.UsageUpdate())
 		return 64
 	}
 
@@ -111,7 +98,7 @@ func cmdUpdate(args []string) int {
 		return 1
 	}
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
-		return fail(fmt.Errorf("release archives are published only for darwin/arm64 (this is %s/%s)", runtime.GOOS, runtime.GOARCH))
+		return fail(errors.New(i18n.T("release archives are published only for darwin/arm64 (this is %s/%s)", runtime.GOOS, runtime.GOARCH)))
 	}
 	fetch := update.Fetcher(confinedFetcher)
 	if *direct {
@@ -133,14 +120,14 @@ func cmdUpdate(args []string) int {
 		if *asJSON {
 			emit(res)
 		} else {
-			fmt.Printf("Netleash %s is up to date.\n", res.Current)
+			fmt.Println(i18n.T("Netleash %s is up to date.", res.Current))
 		}
 		return 0
 	}
 	if !*asJSON {
-		fmt.Printf("Update available: %s → %s\n", res.Current, res.Latest)
+		fmt.Println(i18n.T("Update available: %s → %s", res.Current, res.Latest))
 		if res.URL != "" {
-			fmt.Println("Release notes:", res.URL)
+			fmt.Println(i18n.T("Release notes: %s", res.URL))
 		}
 	}
 	if *check {
@@ -149,14 +136,14 @@ func cmdUpdate(args []string) int {
 		}
 		return 0
 	}
-	if !*yes && !*downloadOnly && !confirm("Download, verify and install it now? [y/N] ") {
-		fmt.Println("Aborted.")
+	if !*yes && !*downloadOnly && !confirm(i18n.T("Download, verify and install it now? [y/N] ")) {
+		fmt.Println(i18n.T("Aborted."))
 		return 0
 	}
 
 	asset := update.AssetName(runtime.GOOS, runtime.GOARCH)
 	if !*asJSON {
-		fmt.Println("Downloading", asset, "...")
+		fmt.Println(i18n.T("Downloading %s ...", asset))
 	}
 	archive, err := update.Download(fetch, tag, asset)
 	if err != nil {
@@ -173,17 +160,17 @@ func cmdUpdate(args []string) int {
 	installer := filepath.Join(dir, strings.TrimSuffix(asset, ".tar.gz"), "install.sh")
 	if _, err := os.Stat(installer); err != nil {
 		os.RemoveAll(dir)
-		return fail(errors.New("unexpected archive layout"))
+		return fail(errors.New(i18n.T("unexpected archive layout")))
 	}
 	res.Dir, res.Installer = dir, installer
 	if !*asJSON {
-		fmt.Println("Checksum verified.")
+		fmt.Println(i18n.T("Checksum verified."))
 	}
 	if *downloadOnly {
 		if *asJSON {
 			emit(res)
 		} else {
-			fmt.Println("Installer:", installer)
+			fmt.Println(i18n.T("Installer: %s", installer))
 		}
 		return 0
 	}
@@ -192,7 +179,7 @@ func cmdUpdate(args []string) int {
 	cmd := exec.Command("/usr/bin/sudo", installer, "-y")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fail(fmt.Errorf("installer failed: %w", err))
+		return fail(fmt.Errorf("%s: %w", i18n.T("installer failed"), err))
 	}
 	return 0
 }
@@ -206,5 +193,5 @@ func confirm(prompt string) bool {
 	fmt.Print(prompt)
 	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	a := strings.ToLower(strings.TrimSpace(line))
-	return a == "y" || a == "yes"
+	return a == "y" || a == "yes" || a == "д" || a == "да"
 }

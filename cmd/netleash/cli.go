@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sedooj/netleash/internal/config"
+	"github.com/sedooj/netleash/internal/i18n"
 	"github.com/sedooj/netleash/internal/netinfo"
 )
 
@@ -34,28 +35,28 @@ type status struct {
 func cmdStatus() int {
 	data, err := os.ReadFile(config.StatusPath)
 	if err != nil {
-		fmt.Printf("✗ daemon is not running (no %s)\n", config.StatusPath)
+		fmt.Println(i18n.T("✗ daemon is not running (no %s)", config.StatusPath))
 		return 2
 	}
 	var st status
 	if json.Unmarshal(data, &st) != nil {
-		fmt.Println("✗ unreadable status file")
+		fmt.Println(i18n.T("✗ unreadable status file"))
 		return 2
 	}
 	if age := time.Since(time.Unix(0, int64(st.TS*1e9))); age > 5*time.Second {
-		fmt.Printf("✗ daemon has not updated its status for %ds\n", int(age.Seconds()))
+		fmt.Println(i18n.T("✗ daemon has not updated its status for %ds", int(age.Seconds())))
 		return 2
 	}
 	if !st.Armed {
-		fmt.Printf("✗ protection is NOT armed: %s\n", st.Note)
+		fmt.Println(i18n.T("✗ protection is NOT armed: %s", st.Note))
 		return 2
 	}
 	if st.VPNUp {
-		fmt.Printf("● VPN connected (%s) — network allowed\n", st.Iface)
+		fmt.Println(i18n.T("● VPN connected (%s) — network allowed", st.Iface))
 	} else {
-		fmt.Println("○ VPN disconnected — network of the protected app is blocked")
+		fmt.Println(i18n.T("○ VPN disconnected — network of the protected app is blocked"))
 	}
-	fmt.Printf("  protection armed, daemon pid %d\n", st.PID)
+	fmt.Println(i18n.T("  protection armed, daemon pid %d", st.PID))
 	return 0
 }
 
@@ -64,15 +65,15 @@ func cmdTest() int {
 	if code := cmdStatus(); code != 0 {
 		return code
 	}
-	fmt.Println("→ through the VPN (must work if the VPN is up):")
+	fmt.Println(i18n.T("→ through the VPN (must work if the VPN is up):"))
 	out, err := exec.Command(helperPath, "/usr/bin/curl", "-s", "-m", "8", "-o", "/dev/null",
 		"-w", "   api.anthropic.com HTTP %{http_code}\n", "https://api.anthropic.com").Output()
 	if err != nil {
-		fmt.Println("   no answer")
+		fmt.Println(i18n.T("   no answer"))
 	} else {
 		fmt.Print(string(out))
 	}
-	fmt.Println("→ forced through a physical interface (MUST be blocked):")
+	fmt.Println(i18n.T("→ forced through a physical interface (MUST be blocked):"))
 	leak := false
 	ifs, _ := net.Interfaces()
 	for _, i := range ifs {
@@ -81,17 +82,17 @@ func cmdTest() int {
 		}
 		err := exec.Command(helperPath, "/usr/bin/curl", "-s", "-m", "5", "--interface", i.Name, "-o", "/dev/null", "https://1.1.1.1").Run()
 		if err == nil {
-			fmt.Printf("   ✗ LEAK through %s!\n", i.Name)
+			fmt.Println(i18n.T("   ✗ LEAK through %s!", i.Name))
 			leak = true
 		} else {
-			fmt.Printf("   ✓ %s is blocked\n", i.Name)
+			fmt.Println(i18n.T("   ✓ %s is blocked", i.Name))
 		}
 	}
 	if leak {
-		fmt.Println("✗ LEAKS FOUND")
+		fmt.Println(i18n.T("✗ LEAKS FOUND"))
 		return 1
 	}
-	fmt.Println("✓ no leaks found")
+	fmt.Println(i18n.T("✓ no leaks found"))
 	return 0
 }
 
@@ -121,7 +122,7 @@ func execSudo(script string) {
 // execTool replaces the current process (no PATH lookup: absolute paths only).
 func execTool(path string, args ...string) {
 	if err := syscall.Exec(path, append([]string{path}, args...), os.Environ()); err != nil {
-		fmt.Fprintf(os.Stderr, "netleash: cannot run %s: %v\n", path, err)
+		fmt.Fprintln(os.Stderr, i18n.T("netleash: cannot run %s: %v", path, err))
 		os.Exit(127)
 	}
 }
