@@ -39,7 +39,7 @@ network without the VPN.
 
 Start Claude one of these ways:
 
-- the **menu bar icon** (shield / lock) → **Open Claude**;
+- the **menu bar icon** (the green/red **N**) → **Open Claude**;
 - **Netleash** in `/Applications` (double-click, Spotlight, or pin it to the Dock instead of Claude);
 - the terminal: `netleash run /Applications/Claude.app/Contents/MacOS/Claude`.
 

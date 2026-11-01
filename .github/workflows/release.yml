@@ -29,11 +29,25 @@ jobs:
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/netleash-darwin-arm64.tar.gz
+      - name: Release notes
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '/^## /{p=(index($0,"## " v " ")==1)} p' CHANGELOG.md > notes.md
+          {
+            cat notes.md
+            echo
+            echo "### Install"
+            echo '```bash'
+            echo "curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/get.sh | sh"
+            echo '```'
+            echo "The installer verifies the SHA-256 checksum. To check and read everything first, see *Install, option 2* in the README."
+            echo "Supported: Claude + AmneziaVPN (Kill Switch off), macOS 26, Apple Silicon. Experimental and unaudited."
+          } > body.md
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           flags=""
           case "$GITHUB_REF_NAME" in *-*) flags="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" $flags --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
+          gh release create "$GITHUB_REF_NAME" $flags --verify-tag --title "$GITHUB_REF_NAME" --notes-file body.md --generate-notes \
             dist/netleash-darwin-arm64.tar.gz dist/SHA256SUMS get.sh
