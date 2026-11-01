@@ -94,10 +94,11 @@ if [ -d Netleash.app ]; then
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
  <key>Label</key><string>$AGENT_LABEL</string>
- <key>ProgramArguments</key><array><string>$APP/Contents/MacOS/Netleash</string><string>--background</string></array>
+ <key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-g</string><string>-a</string><string>$APP</string><string>--args</string><string>--background</string></array>
  <key>RunAtLoad</key><true/>
 </dict></plist>
 P
+  # "open" starts the app through LaunchServices, which macOS requires for the app to be registered for notifications
   chown "$USER_NAME" "$AGENT"
   launchctl asuser "$USER_UID" launchctl bootstrap "gui/$USER_UID" "$AGENT" 2>/dev/null || echo "(the menu bar icon will appear at your next login)"
 else

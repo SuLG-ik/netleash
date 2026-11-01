@@ -120,24 +120,51 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// UNUserNotificationCenter needs a real app bundle; a bare binary falls back to AppleScript.
     private var usable: Bool { Bundle.main.bundlePath.hasSuffix(".app") }
 
-    func setup() {
-        guard usable else { return }
-        let c = UNUserNotificationCenter.current()
-        c.delegate = self
-        c.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    /// Diagnostics (~/Library/Logs/Netleash.log): why a notification did or did not appear.
+    func log(_ s: String) {
+        let path = NSHomeDirectory() + "/Library/Logs/Netleash.log"
+        let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(s)\n"
+        if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile() }
+        else { try? line.write(toFile: path, atomically: true, encoding: .utf8) }
     }
 
-    func post(_ title: String, _ body: String) {
-        guard usable else {
+    func setup() {
+        guard usable else { log("not running from an app bundle: notifications use the AppleScript fallback"); return }
+        let c = UNUserNotificationCenter.current()
+        c.delegate = self
+        c.requestAuthorization(options: [.alert, .sound]) { granted, err in
+            self.log("authorization granted=\(granted) error=\(err.map { "\($0)" } ?? "none")")
+        }
+        c.getNotificationSettings { s in
+            self.log("settings: authorizationStatus=\(s.authorizationStatus.rawValue) (2 = authorized) alert=\(s.alertSetting.rawValue)")
+        }
+    }
+
+    /// Old mechanism: shown by macOS under the generic "Script Editor" name, used only when Netleash cannot notify itself.
+    private func fallback(_ title: String, _ body: String) {
+        DispatchQueue.main.async {
             let esc: (String) -> String = { $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
             var err: NSDictionary?
             NSAppleScript(source: "display notification \"\(esc(body))\" with title \"\(esc(title))\"")?.executeAndReturnError(&err)
-            return
         }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+
+    func post(_ title: String, _ body: String) {
+        guard usable else { fallback(title, body); return }
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { s in
+            guard s.authorizationStatus == .authorized || s.authorizationStatus == .provisional else {
+                self.log("not authorized (status \(s.authorizationStatus.rawValue)); using the fallback for: \(title)")
+                self.fallback(title, body)
+                return
+            }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)) { err in
+                if let err = err { self.log("posting failed: \(err); using the fallback"); self.fallback(title, body) }
+            }
+        }
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
@@ -172,6 +199,7 @@ final class App: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         testItem.action = #selector(testLeaks); testItem.target = self; menu.addItem(testItem)
         add(menu, "Show log", #selector(showLog))
+        add(menu, "Notification settings…", #selector(openNotificationSettings))
         menu.addItem(.separator())
         updateItem.action = #selector(checkForUpdatesAction); updateItem.target = self; menu.addItem(updateItem)
         dailyItem.action = #selector(toggleDaily); dailyItem.target = self; menu.addItem(dailyItem)
@@ -269,6 +297,9 @@ final class App: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc func openNotificationSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
+    }
     @objc func showLog() { NSWorkspace.shared.open(URL(fileURLWithPath: logPath)) }
     @objc func quit() { NSApp.terminate(nil) }
 
@@ -387,8 +418,10 @@ final class App: NSObject, NSApplicationDelegate {
             launchctl(["bootout", "gui/\(uid)/\(agentLabel)"])
             try? FileManager.default.removeItem(atPath: agentPath)
         } else {
-            let exe = Bundle.main.executablePath ?? "/Applications/Netleash.app/Contents/MacOS/Netleash"
-            let plist: [String: Any] = ["Label": agentLabel, "ProgramArguments": [exe, "--background"], "RunAtLoad": true]
+            // Started through LaunchServices ("open"): macOS only registers an app for notifications when it is launched that way.
+            let plist: [String: Any] = ["Label": agentLabel,
+                                        "ProgramArguments": ["/usr/bin/open", "-g", "-a", Bundle.main.bundlePath, "--args", "--background"],
+                                        "RunAtLoad": true]
             try? FileManager.default.createDirectory(atPath: (agentPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
             (plist as NSDictionary).write(toFile: agentPath, atomically: true)
             // Not started now: the app is already running, the agent takes effect at the next login.
