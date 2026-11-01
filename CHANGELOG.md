@@ -14,8 +14,9 @@ file and the git tag `vX.Y.Z`; local builds are marked `X.Y.Z-dev+<commit>`.
   own name and icon instead of "Script Editor". The daemon publishes events in its status file; if the menu bar app is
   not running it falls back to the old mechanism. macOS asks for notification permission on first start; the menu
   bar app is now started through LaunchServices (required for macOS to register it for notifications), logs why a
-  notification did or did not appear to `~/Library/Logs/Netleash.log`, and falls back to the old mechanism if
-  notifications are not allowed. New menu item: Notification settings…
+  notification did or did not appear to `~/Library/Logs/Netleash.log`, and, when macOS does not allow notifications for
+  the app (common for ad-hoc signed apps), shows its own banner (top right, with the Netleash icon) instead.
+  New menu item: Notification settings…
 - Unit tests for version comparison, checksum verification and safe archive extraction.
 
 ## 0.1.0 — 2026-11-01

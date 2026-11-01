@@ -113,6 +113,71 @@ func launchctl(_ args: [String]) {
     p.waitUntilExit()
 }
 
+// MARK: - Toast: Netleash's own notification banner (used when macOS does not allow notifications for the app)
+
+final class Toast {
+    static var panel: NSPanel?
+    static var generation = 0
+
+    static func content(_ title: String, _ body: String, _ w: CGFloat = 360, _ h: CGFloat = 76) -> NSVisualEffectView {
+        let fx = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+            fx.material = .hudWindow
+            fx.state = .active
+            fx.wantsLayer = true
+            fx.layer?.cornerRadius = 16
+            fx.layer?.masksToBounds = true
+
+            let icon = NSImageView(frame: NSRect(x: 14, y: (h - 44) / 2, width: 44, height: 44))
+            icon.image = Bundle.main.path(forResource: "icon", ofType: "icns").flatMap { NSImage(contentsOfFile: $0) } ?? NSApp.applicationIconImage
+            let t = NSTextField(labelWithString: title)
+            t.font = .boldSystemFont(ofSize: 13)
+            t.frame = NSRect(x: 70, y: h - 34, width: w - 84, height: 18)
+            let b = NSTextField(wrappingLabelWithString: body)
+            b.font = .systemFont(ofSize: 12)
+            b.textColor = .secondaryLabelColor
+            b.maximumNumberOfLines = 2
+            b.frame = NSRect(x: 70, y: 10, width: w - 84, height: h - 46)
+            [icon, t, b].forEach { fx.addSubview($0) }
+        return fx
+    }
+
+    static func show(_ title: String, _ body: String, seconds: Double = 7) {
+        DispatchQueue.main.async {
+            panel?.orderOut(nil)
+            let w: CGFloat = 360, h: CGFloat = 76
+            let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            p.isFloatingPanel = true
+            p.level = .statusBar
+            p.hasShadow = true
+            p.isOpaque = false
+            p.backgroundColor = .clear
+            p.isReleasedWhenClosed = false
+            p.hidesOnDeactivate = false
+            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+
+            let fx = content(title, body, w, h)
+            p.contentView = fx
+
+            if let scr = NSScreen.main {
+                let f = scr.visibleFrame
+                p.setFrameOrigin(NSPoint(x: f.maxX - w - 12, y: f.maxY - h - 12))
+            }
+            p.alphaValue = 0
+            p.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { $0.duration = 0.2; p.animator().alphaValue = 1 }
+            panel = p
+            generation += 1
+            let mine = generation
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                guard generation == mine, let cur = panel else { return }
+                NSAnimationContext.runAnimationGroup({ $0.duration = 0.4; cur.animator().alphaValue = 0 },
+                                                     completionHandler: { if generation == mine { cur.orderOut(nil) } })
+            }
+        }
+    }
+}
+
 // MARK: - Notifications (shown under the Netleash name and icon)
 
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
@@ -129,7 +194,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func setup() {
-        guard usable else { log("not running from an app bundle: notifications use the AppleScript fallback"); return }
+        guard usable else { log("not running from an app bundle: notifications use Netleash banners"); return }
         let c = UNUserNotificationCenter.current()
         c.delegate = self
         c.requestAuthorization(options: [.alert, .sound]) { granted, err in
@@ -140,21 +205,15 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Old mechanism: shown by macOS under the generic "Script Editor" name, used only when Netleash cannot notify itself.
-    private func fallback(_ title: String, _ body: String) {
-        DispatchQueue.main.async {
-            let esc: (String) -> String = { $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
-            var err: NSDictionary?
-            NSAppleScript(source: "display notification \"\(esc(body))\" with title \"\(esc(title))\"")?.executeAndReturnError(&err)
-        }
-    }
+    /// Used when macOS does not allow notifications for Netleash (typical for ad-hoc signed apps): Netleash shows its own banner.
+    private func fallback(_ title: String, _ body: String) { Toast.show(title, body) }
 
     func post(_ title: String, _ body: String) {
         guard usable else { fallback(title, body); return }
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { s in
             guard s.authorizationStatus == .authorized || s.authorizationStatus == .provisional else {
-                self.log("not authorized (status \(s.authorizationStatus.rawValue)); using the fallback for: \(title)")
+                self.log("macOS notifications not allowed (status \(s.authorizationStatus.rawValue)); showing a Netleash banner for: \(title)")
                 self.fallback(title, body)
                 return
             }
@@ -435,6 +494,26 @@ extension App: NSMenuDelegate {
         dailyItem.state = UserDefaults.standard.bool(forKey: updateDailyKey) ? .on : .off
         updateItem.title = availableUpdate.map { "Update available: \($0)…" } ?? "Check for updates…"
     }
+}
+
+if CommandLine.arguments.count >= 4, CommandLine.arguments[1] == "--render-toast" {
+    // Layout check without a screen: Netleash --render-toast out.png "Title" "Text"
+    _ = NSApplication.shared
+    let v = Toast.content(CommandLine.arguments[3], CommandLine.arguments.count > 4 ? CommandLine.arguments[4] : "")
+    v.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+    if let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+        v.cacheDisplay(in: v.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
+    }
+    exit(0)
+}
+if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--test-toast" {
+    // Manual check of the banner: Netleash.app/Contents/MacOS/Netleash --test-toast "Title" "Text"
+    let a = NSApplication.shared
+    a.setActivationPolicy(.accessory)
+    Toast.show(CommandLine.arguments[2], CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "", seconds: 4)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { exit(0) }
+    a.run()
 }
 
 let app = NSApplication.shared
