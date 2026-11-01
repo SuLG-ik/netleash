@@ -3,6 +3,18 @@
 Versions follow [Semantic Versioning](https://semver.org). The version of a release is the content of the `VERSION`
 file and the git tag `vX.Y.Z`; local builds are marked `X.Y.Z-dev+<commit>`.
 
+## 0.2.2 — unreleased
+
+- New **Settings** window in the menu bar app: language (system / English / Russian, also used by the `netleash`
+  command), Netleash banners, daily update check, "Check for updates…", start at login. These items moved out of the menu;
+  the menu now shows Open Claude, leak test, log, Settings…, rollback / restore and Quit (plus "Update available" when one is
+  known).
+- Fix: privacy prompts of the protected app named `netleash-exec`. Claude is now started through `netleash-spawn`, a small
+  non-setuid tool that makes it its own "responsible process" (the prompt should name Claude).
+- Fix: updating from the menu bar app could stop halfway when the installer restarted the app, so Claude was not
+  reopened. The installer now ignores its caller going away and logs to `/var/log/netleash-install.log`; the app starts it
+  detached (`/var/log/netleash-update.log`); the temporary update directory is removed afterwards.
+
 ## 0.2.1 — 2026-11-01
 
 - Russian localization: the menu bar app (menus, dialogs, banners, notifications) and the command-line output

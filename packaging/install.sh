@@ -6,9 +6,13 @@
 #   sudo ./install.sh            (add -y or NETLEASH_YES=1 to skip the confirmation)
 # This installs a root daemon and a setuid helper. Read the README (Disclaimer, Limitations) first.
 set -euo pipefail
-cd "$(dirname "$0")"
 [ "$(id -u)" = 0 ] || { echo "Run with sudo: sudo ./install.sh"; exit 1; }
-[ -x netleash ] && [ -x netleash-exec ] || { echo "netleash binaries not found next to install.sh"; exit 1; }
+# The installer closes and restarts apps, possibly including the one that started it: it must not die with its caller.
+trap '' HUP PIPE
+# Not on a terminal (started by the menu bar app, over a pipe, ...): log to a file instead of a pipe that may disappear.
+if [ ! -t 1 ]; then exec >>/var/log/netleash-install.log 2>&1; echo "--- $(date) install.sh started"; fi
+cd "$(dirname "$0")"
+[ -x netleash ] && [ -x netleash-exec ] && [ -x netleash-spawn ] || { echo "netleash binaries not found next to install.sh"; exit 1; }
 
 USER_NAME="${SUDO_USER:-$(stat -f %Su /dev/console)}"
 USER_UID=$(id -u "$USER_NAME")
@@ -81,6 +85,7 @@ dscl . -read /Groups/$GROUP PrimaryGroupID
 mkdir -p $L /usr/local/etc/$N /usr/local/bin
 install -o root -g wheel -m 755 netleash $L/netleash
 install -o root -g wheel -m 4755 netleash-exec $L/netleash-exec
+install -o root -g wheel -m 755 netleash-spawn $L/netleash-spawn
 install -o root -g wheel -m 755 panic.sh $L/panic.sh
 install -o root -g wheel -m 755 resume.sh $L/resume.sh
 install -o root -g wheel -m 755 uninstall.sh $L/uninstall.sh
@@ -88,7 +93,7 @@ rm -f $L/netleashd                       # binary of the pre-Go versions
 ln -sf $L/netleash /usr/local/bin/netleash
 [ -f /usr/local/etc/$N/config.json ] || echo '{}' > /usr/local/etc/$N/config.json
 chown root:wheel /usr/local/etc/$N/config.json; chmod 644 /usr/local/etc/$N/config.json
-codesign -f -s - $L/netleash $L/netleash-exec 2>/dev/null || true
+codesign -f -s - $L/netleash $L/netleash-exec $L/netleash-spawn 2>/dev/null || true
 chmod 4755 $L/netleash-exec               # codesign must not strip the setuid bit
 
 # 3. Daemon (starts at boot)
@@ -148,6 +153,8 @@ fi
 
 sleep 2
 echo; netleash status || true
+# `netleash update` unpacks the archive into a temporary directory of its own: remove it when done
+case "$PWD" in */netleash-update-*/netleash-darwin-arm64) U="$(dirname "$PWD")"; cd /; rm -rf "$U" ;; esac
 if [ "$WAS_RUNNING" = 1 ] && [ -d /Applications/Netleash.app ]; then
   for _ in $(seq 1 30); do netleash status >/dev/null 2>&1 && break; sleep 0.5; done
   echo "Reopening $APP_NAME through Netleash ..."

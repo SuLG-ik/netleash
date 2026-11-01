@@ -103,9 +103,37 @@ func readState() -> State {
 /// Runs a command as root through the standard macOS administrator prompt.
 func runAsAdmin(_ cmd: String) -> String {
     var err: NSDictionary?
-    let r = NSAppleScript(source: "do shell script \"\(cmd)\" with administrator privileges")?.executeAndReturnError(&err)
+    let esc = cmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    let r = NSAppleScript(source: "do shell script \"\(esc)\" with administrator privileges")?.executeAndReturnError(&err)
     if let e = err { return L("Error: %@", "\(e[NSAppleScript.errorMessage] ?? e)") }
     return r?.stringValue ?? L("Done")
+}
+
+/// Runs a command as root, detached from this app (the command may close and restart this very app, as the installer does).
+func runAsAdminDetached(_ path: String, _ args: String, log: String) -> String {
+    runAsAdmin("nohup '\(path)' \(args) >>'\(log)' 2>&1 </dev/null &")
+}
+
+// MARK: - Settings stored for the app and the command line
+
+let languageKey = "AppleLanguages"
+let bannersKey = "bannersEnabled"
+let supportDir = NSHomeDirectory() + "/Library/Application Support/Netleash"
+
+/// "system", "en" or "ru". The command-line tool reads the same choice from a file next to the app's data.
+var chosenLanguage: String {
+    get {
+        let langs = UserDefaults.standard.array(forKey: languageKey) as? [String]
+        return langs?.first.map { $0.hasPrefix("ru") ? "ru" : "en" } ?? "system"
+    }
+    set {
+        if newValue == "system" { UserDefaults.standard.removeObject(forKey: languageKey) }
+        else { UserDefaults.standard.set([newValue], forKey: languageKey) }
+        try? FileManager.default.createDirectory(atPath: supportDir, withIntermediateDirectories: true)
+        let f = supportDir + "/language"
+        if newValue == "system" { try? FileManager.default.removeItem(atPath: f) }
+        else { try? newValue.write(toFile: f, atomically: true, encoding: .utf8) }
+    }
 }
 
 func alert(_ title: String, _ text: String = "", style: NSAlert.Style = .informational) {
@@ -223,6 +251,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private func fallback(_ title: String, _ body: String) { Toast.show(title, body) }
 
     func post(_ title: String, _ body: String) {
+        if (UserDefaults.standard.object(forKey: bannersKey) as? Bool) == false { return }   // switched off in Settings
         guard usable else { fallback(title, body); return }
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { s in
@@ -278,10 +307,9 @@ func spawnDisclaimed(_ path: String, _ args: [String]) -> pid_t? {
 final class App: NSObject, NSApplicationDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let header = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    let loginItem = NSMenuItem(title: L("Start at login"), action: nil, keyEquivalent: "")
     let testItem = NSMenuItem(title: L("Run leak test…"), action: nil, keyEquivalent: "")
-    let updateItem = NSMenuItem(title: L("Check for updates…"), action: nil, keyEquivalent: "")
-    let dailyItem = NSMenuItem(title: L("Check for updates daily (through the VPN)"), action: nil, keyEquivalent: "")
+    let updateItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")   // visible only when an update is known
+    var settings: SettingsWindow?
     var availableUpdate: String?   // set when a newer release is known
     var last = ""
     let background = CommandLine.arguments.contains("--background")
@@ -295,16 +323,13 @@ final class App: NSObject, NSApplicationDelegate {
         ver.isEnabled = false
         menu.addItem(ver)
         menu.addItem(.separator())
+        updateItem.action = #selector(updateFromMenu); updateItem.target = self; updateItem.isHidden = true
+        menu.addItem(updateItem)
         add(menu, L("Open Claude"), #selector(openProtectedApp))
         menu.addItem(.separator())
         testItem.action = #selector(testLeaks); testItem.target = self; menu.addItem(testItem)
         add(menu, L("Show log"), #selector(showLog))
-        add(menu, L("Notification settings…"), #selector(openNotificationSettings))
-        menu.addItem(.separator())
-        updateItem.action = #selector(checkForUpdatesAction); updateItem.target = self; menu.addItem(updateItem)
-        dailyItem.action = #selector(toggleDaily); dailyItem.target = self; menu.addItem(dailyItem)
-        menu.addItem(.separator())
-        loginItem.action = #selector(toggleLogin); loginItem.target = self; menu.addItem(loginItem)
+        add(menu, L("Settings…"), #selector(openSettings), key: ",")
         menu.addItem(.separator())
         add(menu, L("Emergency rollback (remove protection)…"), #selector(panic))
         add(menu, L("Restore protection"), #selector(resume))
@@ -359,7 +384,7 @@ final class App: NSObject, NSApplicationDelegate {
             r.activate()
             return
         }
-        guard let pid = spawnDisclaimed(helperPath, [protectedBinary]) else {
+        guard let pid = spawnDisclaimed(helperPath, ["--disclaim", protectedBinary]) else {
             alert(L("Could not start the app"), L("Check the installation: netleash status"), style: .critical)
             return
         }
@@ -437,24 +462,32 @@ final class App: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc func checkForUpdatesAction() { checkForUpdates(userInitiated: true) }
+    @objc func openSettings() {
+        if settings == nil { settings = SettingsWindow(app: self) }
+        settings?.show()
+    }
 
-    func checkForUpdates(userInitiated: Bool) {
-        if userInitiated { updateItem.title = L("Checking…"); updateItem.isEnabled = false }
+    /// The menu entry that appears when an update is known.
+    @objc func updateFromMenu() { checkForUpdates(userInitiated: true) }
+
+    /// Checks for an update; `done` receives (current, latest, url) when one is available, or an error text.
+    func checkForUpdates(userInitiated: Bool, done: ((String) -> Void)? = nil) {
         runUpdate(["--check"]) { r in
-            self.updateItem.title = L("Check for updates…"); self.updateItem.isEnabled = true
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastCheckKey)
             if let err = r["error"] as? String, !err.isEmpty {
+                done?(L("Could not check for updates") + ": " + err)
                 if userInitiated { alert(L("Could not check for updates"), err, style: .warning) }
                 return
             }
             let current = r["current"] as? String ?? "?"
             guard (r["update"] as? Bool) == true, let latest = r["latest"] as? String else {
-                self.availableUpdate = nil
+                self.setAvailableUpdate(nil)
+                done?(L("Netleash is up to date") + " (" + L("Version %@.", current) + ")")
                 if userInitiated { alert(L("Netleash is up to date"), L("Version %@.", current)) }
                 return
             }
-            self.availableUpdate = latest
+            self.setAvailableUpdate(latest)
+            done?(L("Update available: %@…", latest))
             if userInitiated {
                 self.offerUpdate(current: current, latest: latest, url: r["url"] as? String)
             } else if UserDefaults.standard.string(forKey: notifiedKey) != latest {
@@ -462,6 +495,12 @@ final class App: NSObject, NSApplicationDelegate {
                 Notifier.shared.post(L("Netleash update"), L("Version %@ is available. Open the Netleash menu to update.", latest))
             }
         }
+    }
+
+    func setAvailableUpdate(_ v: String?) {
+        availableUpdate = v
+        updateItem.isHidden = (v == nil)
+        if let v = v { updateItem.title = L("Update available: %@…", v) }
     }
 
     func offerUpdate(current: String, latest: String, url: String?) {
@@ -480,24 +519,28 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     func performUpdate() {
-        updateItem.title = L("Downloading update…"); updateItem.isEnabled = false
+        updateItem.title = L("Downloading update…"); updateItem.isHidden = false; updateItem.isEnabled = false
         runUpdate(["--download-only"]) { r in
-            self.updateItem.title = L("Check for updates…"); self.updateItem.isEnabled = true
-            guard let installer = r["installer"] as? String, let dir = r["dir"] as? String else {
+            self.updateItem.isEnabled = true
+            guard let installer = r["installer"] as? String else {
+                self.setAvailableUpdate(self.availableUpdate)
                 alert(L("Update failed"), (r["error"] as? String) ?? L("unknown error"), style: .critical)
                 return
             }
-            // The installer replaces this app and restarts it; the result dialog may not survive that.
-            let outcome = runAsAdmin("\(installer) -y")
-            try? FileManager.default.removeItem(atPath: dir)
-            alert(L("Update finished"), outcome)
+            // The installer closes Claude and restarts this app, so it runs detached and logs to a file.
+            let out = runAsAdminDetached(installer, "-y", log: "/var/log/netleash-update.log")
+            if out.hasPrefix(L("Error: %@", "")) || out.contains("User canceled") {
+                self.setAvailableUpdate(self.availableUpdate)
+                alert(L("Update failed"), out, style: .critical)
+            } else {
+                alert(L("Update started"), L("Claude will close and open again, and this app will restart in a few seconds. Progress: /var/log/netleash-update.log"))
+            }
         }
     }
 
-    @objc func toggleDaily() {
-        let d = UserDefaults.standard
-        d.set(!d.bool(forKey: updateDailyKey), forKey: updateDailyKey)
-        if d.bool(forKey: updateDailyKey) { checkForUpdates(userInitiated: false) }
+    func setDaily(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: updateDailyKey)
+        if on { checkForUpdates(userInitiated: false) }
     }
 
     /// Opt-in: at most one silent check per day. The request goes through the VPN; if the VPN is down it is skipped.
@@ -513,9 +556,9 @@ final class App: NSObject, NSApplicationDelegate {
 
     var loginEnabled: Bool { FileManager.default.fileExists(atPath: agentPath) }
 
-    @objc func toggleLogin() {
+    func setLogin(_ on: Bool) {
         let uid = String(getuid())
-        if loginEnabled {
+        if !on {
             launchctl(["bootout", "gui/\(uid)/\(agentLabel)"])
             try? FileManager.default.removeItem(atPath: agentPath)
         } else {
@@ -531,10 +574,102 @@ final class App: NSObject, NSApplicationDelegate {
 }
 
 extension App: NSMenuDelegate {
-    func menuWillOpen(_ menu: NSMenu) {
-        loginItem.state = loginEnabled ? .on : .off
-        dailyItem.state = UserDefaults.standard.bool(forKey: updateDailyKey) ? .on : .off
-        updateItem.title = availableUpdate.map { L("Update available: %@…", $0) } ?? L("Check for updates…")
+    func menuWillOpen(_ menu: NSMenu) {}
+}
+
+// MARK: - Settings window
+
+final class SettingsWindow: NSObject, NSWindowDelegate {
+    unowned let app: App
+    let window: NSWindow
+    let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    let bannersCheck = NSButton(checkboxWithTitle: L("Show Netleash banners and notifications"), target: nil, action: nil)
+    let dailyCheck = NSButton(checkboxWithTitle: L("Check for updates daily (through the VPN)"), target: nil, action: nil)
+    let loginCheck = NSButton(checkboxWithTitle: L("Start at login"), target: nil, action: nil)
+    let updateStatus = NSTextField(labelWithString: "")
+
+    init(app: App) {
+        self.app = app
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
+                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        super.init()
+        window.title = L("Netleash Settings")
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+
+        func section(_ title: String) -> NSTextField {
+            let t = NSTextField(labelWithString: title)
+            t.font = .boldSystemFont(ofSize: 13)
+            return t
+        }
+        func note(_ text: String) -> NSTextField {
+            let t = NSTextField(wrappingLabelWithString: text)
+            t.font = .systemFont(ofSize: 11)
+            t.textColor = .secondaryLabelColor
+            t.preferredMaxLayoutWidth = 400
+            return t
+        }
+
+        languagePopup.addItems(withTitles: [L("System default"), "English", "Русский"])
+        languagePopup.target = self; languagePopup.action = #selector(languageChanged)
+        bannersCheck.target = self; bannersCheck.action = #selector(bannersChanged)
+        dailyCheck.target = self; dailyCheck.action = #selector(dailyChanged)
+        loginCheck.target = self; loginCheck.action = #selector(loginChanged)
+        let notifBtn = NSButton(title: L("Notification settings…"), target: self, action: #selector(openNotifications))
+        let checkBtn = NSButton(title: L("Check for updates…"), target: self, action: #selector(checkNow))
+        let langRow = NSStackView(views: [NSTextField(labelWithString: L("Language")), languagePopup])
+        langRow.spacing = 10
+
+        let stack = NSStackView(views: [
+            section(L("Language")), langRow, note(L("The app restarts to apply the language. It also applies to the netleash command.")),
+            section(L("Notifications")), bannersCheck, notifBtn,
+            section(L("Updates")), dailyCheck, checkBtn, updateStatus,
+            section(L("General")), loginCheck,
+        ])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 18, left: 20, bottom: 18, right: 20)
+        stack.setCustomSpacing(16, after: stack.views[2])
+        stack.setCustomSpacing(16, after: notifBtn)
+        stack.setCustomSpacing(16, after: updateStatus)
+        window.contentView = stack
+        window.setContentSize(stack.fittingSize)
+    }
+
+    func show() {
+        refresh()
+        window.center()
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func refresh() {
+        switch chosenLanguage { case "en": languagePopup.selectItem(at: 1); case "ru": languagePopup.selectItem(at: 2); default: languagePopup.selectItem(at: 0) }
+        bannersCheck.state = (UserDefaults.standard.object(forKey: bannersKey) as? Bool ?? true) ? .on : .off
+        dailyCheck.state = UserDefaults.standard.bool(forKey: updateDailyKey) ? .on : .off
+        loginCheck.state = app.loginEnabled ? .on : .off
+        updateStatus.stringValue = app.availableUpdate.map { L("Update available: %@…", $0) } ?? ""
+    }
+
+    @objc func languageChanged() {
+        let new = ["system", "en", "ru"][languagePopup.indexOfSelectedItem]
+        guard new != chosenLanguage else { return }
+        chosenLanguage = new
+        // Relaunch so the whole interface (menus, dialogs, banners) switches language.
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "sleep 1; /usr/bin/open -n -g -a '\(Bundle.main.bundlePath)' --args --background"]
+        try? p.run()
+        NSApp.terminate(nil)
+    }
+    @objc func bannersChanged() { UserDefaults.standard.set(bannersCheck.state == .on, forKey: bannersKey) }
+    @objc func dailyChanged() { app.setDaily(dailyCheck.state == .on) }
+    @objc func loginChanged() { app.setLogin(loginCheck.state == .on) }
+    @objc func openNotifications() { app.openNotificationSettings() }
+    @objc func checkNow() {
+        updateStatus.stringValue = L("Checking…")
+        app.checkForUpdates(userInitiated: false) { [weak self] text in self?.updateStatus.stringValue = text }
     }
 }
 
@@ -542,6 +677,18 @@ if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--l10n" {
     // Translation check: Netleash --l10n "Quit"   (the language follows the system, or: -AppleLanguages "(ru)")
     print(L(CommandLine.arguments[2]))
     exit(0)
+}
+if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--render-settings" {
+    // Layout check without a screen: Netleash --render-settings out.png   (add -AppleLanguages "(ru)" to check Russian)
+    _ = NSApplication.shared
+    let holder = App()   // SettingsWindow keeps only an unowned reference
+    let w = SettingsWindow(app: holder)
+    w.refresh()
+    if let v = w.window.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+        v.cacheDisplay(in: v.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
+    }
+    withExtendedLifetime(holder) { exit(0) }
 }
 if CommandLine.arguments.count >= 4, CommandLine.arguments[1] == "--render-toast" {
     // Layout check without a screen: Netleash --render-toast out.png "Title" "Text"

@@ -32,6 +32,9 @@ go test ./...
 go build -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE" -o "$OUT/netleash" ./cmd/netleash
 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUT/netleash-exec" ./cmd/netleash-exec
 
+echo "==> Spawn tool"
+clang -O2 -Wall -o "$OUT/netleash-spawn" cmd/netleash-spawn/spawn.c
+
 echo "==> Menu bar app"
 if command -v swiftc >/dev/null; then
   APP="$OUT/Netleash.app"

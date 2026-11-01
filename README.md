@@ -115,11 +115,20 @@ and test manually: with Claude running, switch the VPN off — its network must 
 recover without restarting the app. A response interrupted mid-stream cannot resume (its TCP connection died with the
 tunnel); resend the message.
 
-### Language
+### Settings and language
 
-The menu bar app and the command-line output follow the system language (English or Russian). Force one with
-`NETLEASH_LANG=en` or `NETLEASH_LANG=ru`. The installers (`install.sh`, `get.sh`) are English only. A Russian version of
-this document: [README.ru.md](README.ru.md).
+Menu bar icon → **Settings…**: interface **language** (system default, English, Russian; it applies to the app and to the
+`netleash` command), Netleash banners on/off and a shortcut to the system notification settings, the opt-in **daily update
+check**, a "Check for updates…" button, and **start at login**. Without a choice the language follows the system; force one for a
+single command with `NETLEASH_LANG=en` or `NETLEASH_LANG=ru`. The installers (`install.sh`, `get.sh`) are English only. A
+Russian version of this document: [README.ru.md](README.ru.md).
+
+### Privacy prompts of the protected app
+
+macOS asks for access to Downloads, Documents, the screen, etc. in the name of the process that is *responsible* for the app.
+Netleash starts Claude through a small tool (`netleash-spawn`) that makes Claude its own responsible process, so the prompts
+should name **Claude**. If a prompt names `netleash-exec` or Netleash instead, allow it once there (System Settings →
+Privacy & Security), or tell us in an issue: it depends on macOS internals.
 
 ### Versions
 

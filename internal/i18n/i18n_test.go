@@ -4,6 +4,8 @@
 package i18n
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -50,5 +52,27 @@ func TestNorm(t *testing.T) {
 		if got := norm(in); got != want {
 			t.Errorf("norm(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestLanguageFileFromSettings(t *testing.T) {
+	home := t.TempDir()
+	if got := fileLang(home); got != "" {
+		t.Errorf("no file must mean the system default, got %q", got)
+	}
+	dir := filepath.Join(home, "Library", "Application Support", "Netleash")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for content, want := range map[string]string{"ru": "ru", "en\n": "en", "de": "", "": ""} {
+		if err := os.WriteFile(filepath.Join(dir, "language"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := fileLang(home); got != want {
+			t.Errorf("language file %q -> %q, want %q", content, got, want)
+		}
+	}
+	if got := fileLang(""); got != "" {
+		t.Errorf("empty home must be ignored, got %q", got)
 	}
 }

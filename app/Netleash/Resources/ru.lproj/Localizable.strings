@@ -43,7 +43,6 @@
 "Downloading update…" = "Скачиваю обновление…";
 "Update failed" = "Обновление не удалось";
 "unknown error" = "неизвестная ошибка";
-"Update finished" = "Обновление завершено";
 "Update available: %@…" = "Доступно обновление: %@…";
 "VPN disconnected" = "VPN отключён";
 "Network access is blocked." = "Доступ к сети заблокирован.";
@@ -51,3 +50,14 @@
 "Network access restored through the VPN." = "Доступ к сети восстановлен через VPN.";
 "App closed" = "Приложение закрыто";
 "Start it only through Netleash." = "Запускайте его только через Netleash.";
+"Settings…" = "Настройки…";
+"Netleash Settings" = "Настройки Netleash";
+"Language" = "Язык";
+"System default" = "Как в системе";
+"The app restarts to apply the language. It also applies to the netleash command." = "Приложение перезапустится, чтобы применить язык. Он же используется командой netleash.";
+"Notifications" = "Уведомления";
+"Show Netleash banners and notifications" = "Показывать баннеры и уведомления Netleash";
+"Updates" = "Обновления";
+"General" = "Общие";
+"Update started" = "Обновление запущено";
+"Claude will close and open again, and this app will restart in a few seconds. Progress: /var/log/netleash-update.log" = "Claude закроется и откроется снова, а это приложение перезапустится через несколько секунд. Ход обновления: /var/log/netleash-update.log";

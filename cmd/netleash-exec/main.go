@@ -19,7 +19,10 @@ import (
 // Set at build time: -ldflags "-X main.version=0.1.0".
 var version = "dev"
 
-const statusPath = "/var/run/netleash/status.json"
+const (
+	statusPath = "/var/run/netleash/status.json"
+	spawnTool  = "/usr/local/libexec/netleash/netleash-spawn"
+)
 
 func die(code int, format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "netleash-exec: "+format+"\n", a...)
@@ -47,8 +50,15 @@ func main() {
 		fmt.Println("netleash-exec", version)
 		return
 	}
-	if len(os.Args) < 2 {
-		die(64, "usage: netleash-exec <program> [arguments...]")
+	args := os.Args[1:]
+	// --disclaim: run the program through netleash-spawn, so macOS treats it as its own "responsible process" (privacy
+	// prompts then name the program itself instead of the app that launched it).
+	disclaim := len(args) > 0 && args[0] == "--disclaim"
+	if disclaim {
+		args = args[1:]
+	}
+	if len(args) < 1 {
+		die(64, "usage: netleash-exec [--disclaim] <program> [arguments...]")
 	}
 	if os.Geteuid() != 0 {
 		die(1, "not setuid root (run the installer)")
@@ -90,7 +100,11 @@ func main() {
 		die(3, "unexpected uid/gid after drop")
 	}
 
-	if err := syscall.Exec(os.Args[1], os.Args[1:], os.Environ()); err != nil {
-		die(127, "exec %s: %v", os.Args[1], err)
+	if disclaim {
+		// The spawn tool lives in a root-owned directory; it runs as the user with the group set above.
+		args = append([]string{spawnTool}, args...)
+	}
+	if err := syscall.Exec(args[0], args, os.Environ()); err != nil {
+		die(127, "exec %s: %v", args[0], err)
 	}
 }

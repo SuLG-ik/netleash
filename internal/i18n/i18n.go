@@ -8,6 +8,7 @@ package i18n
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -21,9 +22,29 @@ func norm(v string) string {
 	return "en"
 }
 
+// fileLang reads the language chosen in the menu bar app's settings ("en", "ru"; absent = system default).
+func fileLang(home string) string {
+	if home == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, "Library", "Application Support", "Netleash", "language"))
+	if err != nil {
+		return ""
+	}
+	if v := strings.TrimSpace(string(data)); v == "en" || v == "ru" {
+		return v
+	}
+	return ""
+}
+
 func detect() string {
 	if v := os.Getenv("NETLEASH_LANG"); v != "" {
 		return norm(v)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if v := fileLang(home); v != "" {
+			return v
+		}
 	}
 	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
 		if v := os.Getenv(k); v != "" && v != "C" && v != "POSIX" {
