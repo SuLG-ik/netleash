@@ -119,7 +119,13 @@ checkout are marked `X.Y.Z-dev+<commit>`.
 
 ### Update, rollback, uninstall
 
-- **Update:** run the install command again (it replaces everything in place).
+- **Update:** `netleash update` (or the menu bar icon → **Check for updates…**). It asks GitHub for the latest release,
+  shows what is new, and — after you confirm — downloads it, **verifies its SHA-256 checksum**, and runs its installer
+  (administrator password required). By default the requests go **through the VPN** (they run inside the same
+  confinement as the protected app, so GitHub and your ISP do not learn this Mac's real address); if the VPN is down the
+  check simply fails. Use `netleash update --direct` to connect outside the VPN, `--check` to only look. In the menu you
+  can switch on a **daily check** (off by default; silent when the VPN is down). Netleash never updates itself without
+  your confirmation. Running the install command again also updates everything in place.
 - **Emergency rollback:** menu bar icon → *Emergency rollback*, or `netleash panic`. The daemon stops and stays disabled
   across reboots, and the pf rules are removed. Re-enable with *Restore protection* or `netleash resume`.
 - **Uninstall:** `sudo /usr/local/libexec/netleash/uninstall.sh`
@@ -154,7 +160,7 @@ so programs that reload the main ruleset do not remove it.
 
 | Component | Language | Role |
 |---|---|---|
-| `netleash` (`cmd/netleash`) | Go | One binary: the root **daemon** (`netleash daemon`, started by launchd at boot) and the **CLI** (`status`, `test`, `panic`, `resume`, `log`, `run`, `version`). The daemon detects the live VPN, maintains the anchor, restores pf references, kills protected-app processes started outside the launcher (checked every 50 ms), and notifies |
+| `netleash` (`cmd/netleash`) | Go | One binary: the root **daemon** (`netleash daemon`, started by launchd at boot) and the **CLI** (`status`, `test`, `panic`, `resume`, `update`, `log`, `run`, `version`). The daemon detects the live VPN, maintains the anchor, restores pf references, kills protected-app processes started outside the launcher (checked every 50 ms), and notifies |
 | `netleash-exec` (`cmd/netleash-exec`) | Go | Setuid helper: runs a command as *your* user with only the `_netleash` group; refuses to start if protection is not armed. It only ever lowers privileges |
 | `Netleash.app` (`app/Netleash`) | Swift | Launcher for the protected app, menu bar status icon (green: VPN up · red: VPN down, app blocked · orange: protection not working), leak test, log viewer, start-at-login, emergency rollback / restore |
 | `packaging/*.sh`, `get.sh` | shell | Installer, uninstaller, rollback scripts, bootstrap |
@@ -200,6 +206,9 @@ applications on your Mac are no longer protected by Amnezia's kill switch if the
 - While the VPN is down and the protected app is running, DNS is blocked **system-wide** on physical interfaces.
 - The local network is not reachable from the protected app.
 - Not designed to resist a malicious process with root privileges, a malicious administrator, or a compromised OS.
+- Updates trust this repository's GitHub releases: the checksum comes from the same release, so it protects against
+  corrupted or tampered downloads, not against a compromised repository or account. For stronger assurance verify the
+  build-provenance attestation (`gh attestation verify`, see Install, option 2).
 - Unaudited code; binaries are ad-hoc signed, not notarized.
 
 ## Disclaimer

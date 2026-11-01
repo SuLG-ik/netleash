@@ -19,6 +19,9 @@ let protectedBinary = "/Applications/Claude.app/Contents/MacOS/Claude"
 let protectedBundleID = "com.anthropic.claudefordesktop"
 let agentLabel = "org.netleash.app"
 let agentPath = NSHomeDirectory() + "/Library/LaunchAgents/\(agentLabel).plist"
+let updateDailyKey = "updateCheckDaily"
+let lastCheckKey = "lastUpdateCheck"
+let notifiedKey = "notifiedUpdateVersion"
 let launchLog = NSHomeDirectory() + "/Library/Logs/Netleash-launch.log"
 
 // MARK: - Protection state
@@ -103,6 +106,9 @@ final class App: NSObject, NSApplicationDelegate {
     let header = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     let loginItem = NSMenuItem(title: "Start at login", action: nil, keyEquivalent: "")
     let testItem = NSMenuItem(title: "Run leak test…", action: nil, keyEquivalent: "")
+    let updateItem = NSMenuItem(title: "Check for updates…", action: nil, keyEquivalent: "")
+    let dailyItem = NSMenuItem(title: "Check for updates daily (through the VPN)", action: nil, keyEquivalent: "")
+    var availableUpdate: String?   // set when a newer release is known
     var last = ""
     let background = CommandLine.arguments.contains("--background")
 
@@ -119,6 +125,9 @@ final class App: NSObject, NSApplicationDelegate {
         testItem.action = #selector(testLeaks); testItem.target = self; menu.addItem(testItem)
         add(menu, "Show log", #selector(showLog))
         menu.addItem(.separator())
+        updateItem.action = #selector(checkForUpdatesAction); updateItem.target = self; menu.addItem(updateItem)
+        dailyItem.action = #selector(toggleDaily); dailyItem.target = self; menu.addItem(dailyItem)
+        menu.addItem(.separator())
         loginItem.action = #selector(toggleLogin); loginItem.target = self; menu.addItem(loginItem)
         menu.addItem(.separator())
         add(menu, "Emergency rollback (remove protection)…", #selector(panic))
@@ -129,6 +138,8 @@ final class App: NSObject, NSApplicationDelegate {
         item.menu = menu
         refresh()
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.refresh() }
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in self?.dailyCheckIfDue() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.dailyCheckIfDue() }
         if !background { openProtectedApp() }
     }
 
@@ -226,6 +237,99 @@ final class App: NSObject, NSApplicationDelegate {
 
     @objc func resume() { alert(runAsAdmin("\(libexec)/resume.sh")) }
 
+    // MARK: Updates
+
+    /// Runs `netleash update …` (through the VPN unless the user asked otherwise) and returns the parsed JSON.
+    func runUpdate(_ args: [String], completion: @escaping ([String: Any]) -> Void) {
+        DispatchQueue.global().async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: cliPath)
+            p.arguments = ["update", "--json"] + args
+            let out = Pipe(); p.standardOutput = out; p.standardError = FileHandle.nullDevice
+            var result: [String: Any] = ["error": "could not run netleash"]
+            if (try? p.run()) != nil {
+                let data = out.fileHandleForReading.readDataToEndOfFile()
+                p.waitUntilExit()
+                if let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] { result = j }
+            }
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
+    @objc func checkForUpdatesAction() { checkForUpdates(userInitiated: true) }
+
+    func checkForUpdates(userInitiated: Bool) {
+        if userInitiated { updateItem.title = "Checking…"; updateItem.isEnabled = false }
+        runUpdate(["--check"]) { r in
+            self.updateItem.title = "Check for updates…"; self.updateItem.isEnabled = true
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastCheckKey)
+            if let err = r["error"] as? String, !err.isEmpty {
+                if userInitiated { alert("Could not check for updates", err, style: .warning) }
+                return
+            }
+            let current = r["current"] as? String ?? "?"
+            guard (r["update"] as? Bool) == true, let latest = r["latest"] as? String else {
+                self.availableUpdate = nil
+                if userInitiated { alert("Netleash is up to date", "Version \(current).") }
+                return
+            }
+            self.availableUpdate = latest
+            if userInitiated {
+                self.offerUpdate(current: current, latest: latest, url: r["url"] as? String)
+            } else if UserDefaults.standard.string(forKey: notifiedKey) != latest {
+                UserDefaults.standard.set(latest, forKey: notifiedKey)
+                let script = "display notification \"Version \(latest) is available. Open the Netleash menu to update.\" with title \"Netleash update\""
+                var err: NSDictionary?
+                NSAppleScript(source: script)?.executeAndReturnError(&err)
+            }
+        }
+    }
+
+    func offerUpdate(current: String, latest: String, url: String?) {
+        let a = NSAlert()
+        a.messageText = "Netleash \(latest) is available"
+        a.informativeText = "You have \(current). The update is downloaded through the VPN, its SHA-256 checksum is verified, and you are asked for your administrator password to install it. The menu bar app restarts afterwards."
+        a.addButton(withTitle: "Update")
+        a.addButton(withTitle: "Release notes")
+        a.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        switch a.runModal() {
+        case .alertFirstButtonReturn: performUpdate()
+        case .alertSecondButtonReturn: if let u = url, let link = URL(string: u) { NSWorkspace.shared.open(link) }
+        default: break
+        }
+    }
+
+    func performUpdate() {
+        updateItem.title = "Downloading update…"; updateItem.isEnabled = false
+        runUpdate(["--download-only"]) { r in
+            self.updateItem.title = "Check for updates…"; self.updateItem.isEnabled = true
+            guard let installer = r["installer"] as? String, let dir = r["dir"] as? String else {
+                alert("Update failed", (r["error"] as? String) ?? "unknown error", style: .critical)
+                return
+            }
+            // The installer replaces this app and restarts it; the result dialog may not survive that.
+            let outcome = runAsAdmin("\(installer) -y")
+            try? FileManager.default.removeItem(atPath: dir)
+            alert("Update finished", outcome)
+        }
+    }
+
+    @objc func toggleDaily() {
+        let d = UserDefaults.standard
+        d.set(!d.bool(forKey: updateDailyKey), forKey: updateDailyKey)
+        if d.bool(forKey: updateDailyKey) { checkForUpdates(userInitiated: false) }
+    }
+
+    /// Opt-in: at most one silent check per day. The request goes through the VPN; if the VPN is down it is skipped.
+    func dailyCheckIfDue() {
+        let d = UserDefaults.standard
+        guard d.bool(forKey: updateDailyKey) else { return }
+        if Date().timeIntervalSince1970 - d.double(forKey: lastCheckKey) < 86400 { return }
+        guard case .up = readState() else { return }
+        checkForUpdates(userInitiated: false)
+    }
+
     // MARK: Start at login
 
     var loginEnabled: Bool { FileManager.default.fileExists(atPath: agentPath) }
@@ -246,7 +350,11 @@ final class App: NSObject, NSApplicationDelegate {
 }
 
 extension App: NSMenuDelegate {
-    func menuWillOpen(_ menu: NSMenu) { loginItem.state = loginEnabled ? .on : .off }
+    func menuWillOpen(_ menu: NSMenu) {
+        loginItem.state = loginEnabled ? .on : .off
+        dailyItem.state = UserDefaults.standard.bool(forKey: updateDailyKey) ? .on : .off
+        updateItem.title = availableUpdate.map { "Update available: \($0)…" } ?? "Check for updates…"
+    }
 }
 
 let app = NSApplication.shared

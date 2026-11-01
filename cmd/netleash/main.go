@@ -34,6 +34,7 @@ usage: netleash <command>
   test                leak test: a forced connection through a physical interface MUST be blocked
   panic               emergency rollback: remove all protection (asks for sudo)
   resume              restore protection after panic (asks for sudo)
+  update [flags]      check for a newer release and install it (see: netleash update --help)
   log                 follow the daemon log
   run <command...>    run a command under the same network confinement
   version             print the version
@@ -56,6 +57,12 @@ func main() {
 		execSudo("panic.sh")
 	case "resume":
 		os.Exit(cmdResume())
+	case "update":
+		if len(os.Args) > 2 && (os.Args[2] == "--help" || os.Args[2] == "-h") {
+			fmt.Print(updateUsage)
+			return
+		}
+		os.Exit(cmdUpdate(os.Args[2:]))
 	case "log":
 		execTool("/usr/bin/tail", "-f", logPath)
 	case "run":
