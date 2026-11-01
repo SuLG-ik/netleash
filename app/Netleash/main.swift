@@ -232,6 +232,33 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 }
 
+/// Starts a program that macOS treats as its OWN "responsible process". With a plain Process the protected app would be
+/// attributed to Netleash, so privacy prompts (Downloads, Documents, Desktop, …) would name Netleash instead of the app,
+/// and permissions already granted to the app (screen recording, accessibility, …) would not apply. Uses the same
+/// call that terminals and launchers use to disclaim responsibility for what they spawn.
+func spawnDisclaimed(_ path: String, _ args: [String]) -> pid_t? {
+    FileManager.default.createFile(atPath: launchLog, contents: nil)
+    var attr: posix_spawnattr_t?
+    posix_spawnattr_init(&attr)
+    defer { posix_spawnattr_destroy(&attr) }
+    typealias Disclaim = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
+    if let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim") {   // RTLD_DEFAULT
+        _ = unsafeBitCast(sym, to: Disclaim.self)(&attr, 1)
+    }
+    var actions: posix_spawn_file_actions_t?
+    posix_spawn_file_actions_init(&actions)
+    defer { posix_spawn_file_actions_destroy(&actions) }
+    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0)
+    posix_spawn_file_actions_addopen(&actions, 2, launchLog, O_WRONLY | O_APPEND, 0o600)
+
+    let argv: [UnsafeMutablePointer<CChar>?] = ([path] + args).map { strdup($0) } + [nil]
+    defer { argv.forEach { free($0) } }
+    var pid: pid_t = 0
+    let rc = posix_spawn(&pid, path, &actions, &attr, argv, environ)
+    return rc == 0 ? pid : nil
+}
+
 // MARK: - App
 
 final class App: NSObject, NSApplicationDelegate {
@@ -318,21 +345,22 @@ final class App: NSObject, NSApplicationDelegate {
             r.activate()
             return
         }
-        FileManager.default.createFile(atPath: launchLog, contents: nil)
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: helperPath)
-        p.arguments = [protectedBinary]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle(forWritingAtPath: launchLog) ?? FileHandle.nullDevice
-        do { try p.run() } catch {
-            alert("Could not start the app", "\(error)\n\nCheck the installation: netleash status", style: .critical)
+        guard let pid = spawnDisclaimed(helperPath, [protectedBinary]) else {
+            alert("Could not start the app", "Check the installation: netleash status", style: .critical)
             return
         }
         // The helper refuses to start when protection is not armed: say so instead of failing silently.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            guard !p.isRunning, p.terminationStatus != 0 else { return }
-            let msg = (try? String(contentsOfFile: launchLog, encoding: .utf8)) ?? ""
-            alert("Not started: protection is not active", msg.isEmpty ? "Check: netleash status" : msg, style: .critical)
+        let started = Date()
+        DispatchQueue.global().async {
+            var status: Int32 = 0
+            waitpid(pid, &status, 0)
+            let failedFast = Date().timeIntervalSince(started) < 5
+            let code = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
+            guard failedFast, code != 0 else { return }
+            DispatchQueue.main.async {
+                let msg = (try? String(contentsOfFile: launchLog, encoding: .utf8)) ?? ""
+                alert("Not started: protection is not active", msg.isEmpty ? "Check: netleash status" : msg, style: .critical)
+            }
         }
     }
 

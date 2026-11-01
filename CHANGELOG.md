@@ -20,6 +20,9 @@ file and the git tag `vX.Y.Z`; local builds are marked `X.Y.Z-dev+<commit>`.
 - The installer now closes Claude by itself (normal quit first, then by force) and reopens it through Netleash when it
   finishes, on installs and updates. It does not do this when it is run from a terminal inside Claude (that would end
   the installer), and it ignores the terminal hang-up while Claude closes.
+- The protected app is now started so that macOS treats it as its own "responsible process" (the launcher disclaims
+  responsibility). Before, privacy prompts (Downloads, Documents, …) named Netleash instead of the app, and permissions
+  already granted to the app did not apply.
 - Unit tests for version comparison, checksum verification and safe archive extraction.
 
 ## 0.1.0 — 2026-11-01
