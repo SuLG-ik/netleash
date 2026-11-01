@@ -10,6 +10,9 @@ file and the git tag `vX.Y.Z`; local builds are marked `X.Y.Z-dev+<commit>`.
   `--json`, `--yes`, `--download-only`, `--version` available).
 - Menu bar app: "Check for updates…" with a one-click update flow, and an opt-in daily check (off by default;
   silent when the VPN is down).
+- Notifications (VPN down/up, unprotected launch closed, update available) are now shown by the Netleash app under its
+  own name and icon instead of "Script Editor". The daemon publishes events in its status file; if the menu bar app is
+  not running it falls back to the old mechanism. macOS asks for notification permission on first start.
 - Unit tests for version comparison, checksum verification and safe archive extraction.
 
 ## 0.1.0 — 2026-11-01

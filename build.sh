@@ -36,7 +36,7 @@ echo "==> Menu bar app"
 if command -v swiftc >/dev/null; then
   APP="$OUT/Netleash.app"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-  swiftc -O -file-prefix-map "$PWD=." app/Netleash/main.swift -framework AppKit -o "$APP/Contents/MacOS/Netleash"
+  swiftc -O -file-prefix-map "$PWD=." app/Netleash/main.swift -framework AppKit -framework UserNotifications -o "$APP/Contents/MacOS/Netleash"
   cat > "$APP/Contents/Info.plist" <<P
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

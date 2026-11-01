@@ -51,8 +51,17 @@ type daemon struct {
 	started     bool // lastIface is valid
 	lookupDelay int
 
-	mu              sync.Mutex // guards lastRogueNotify
+	mu              sync.Mutex // guards lastRogueNotify and event
 	lastRogueNotify time.Time
+	event           *event // last user-facing event, published in the status file for the menu bar app
+}
+
+// event is a user-facing notification. The root daemon cannot post notifications under the Netleash name itself,
+// so it publishes the event in the status file and the menu bar app (running as the user) shows it.
+type event struct {
+	Seq   int64  `json:"seq"`
+	Title string `json:"title"`
+	Text  string `json:"text"`
 }
 
 func runDaemon() {
@@ -323,6 +332,30 @@ func (d *daemon) notify(title, text string) {
 	if !d.cfg.Notify {
 		return
 	}
+	d.mu.Lock()
+	d.event = &event{Seq: time.Now().UnixMilli(), Title: title, Text: text}
+	d.mu.Unlock()
+	if !d.menuAppRunning() {
+		d.notifyFallback(title, text)
+	}
+}
+
+func (d *daemon) menuAppRunning() bool {
+	procs, err := proc.List()
+	if err != nil {
+		return false
+	}
+	for _, p := range procs {
+		if strings.Contains(p.Path, "/Netleash.app/Contents/MacOS/") {
+			return true
+		}
+	}
+	return false
+}
+
+// notifyFallback is used only when the menu bar app is not running (it would be silent otherwise). macOS shows such
+// notifications under the generic "Script Editor" name, which is why the app path is preferred.
+func (d *daemon) notifyFallback(title, text string) {
 	fi, err := os.Stat("/dev/console")
 	if err != nil {
 		return
@@ -336,11 +369,16 @@ func (d *daemon) notify(title, text string) {
 	go sys.Run("/bin/launchctl", "asuser", strconv.Itoa(int(st.Uid)), "/usr/bin/osascript", "-e", script)
 }
 
+// ---- status ----
+
 func (d *daemon) writeStatus(armed bool, iface, note string) {
 	_ = os.MkdirAll(config.StateDir, 0o755)
+	d.mu.Lock()
+	ev := d.event
+	d.mu.Unlock()
 	data, err := json.Marshal(map[string]any{
 		"armed": armed, "vpnUp": iface != "", "iface": iface, "ts": float64(time.Now().UnixNano()) / 1e9,
-		"pid": os.Getpid(), "gid": d.gid.Load(), "note": note,
+		"pid": os.Getpid(), "gid": d.gid.Load(), "note": note, "event": ev,
 	})
 	if err != nil {
 		return

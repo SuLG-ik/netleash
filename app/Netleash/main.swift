@@ -8,6 +8,7 @@
 //   Netleash --background only the icon (this is how it starts at login)
 
 import AppKit
+import UserNotifications
 
 let installName = "netleash"
 let statusPath = "/var/run/\(installName)/status.json"
@@ -61,6 +62,19 @@ enum State {
     }
 }
 
+/// Events published by the daemon in the status file (VPN down/up, unprotected launch closed).
+var lastEventSeq: Int64?
+
+func handleEvents() {
+    guard let data = FileManager.default.contents(atPath: statusPath),
+          let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let ev = d["event"] as? [String: Any], let seq = (ev["seq"] as? NSNumber)?.int64Value else { return }
+    guard let last = lastEventSeq else { lastEventSeq = seq; return }   // first read: do not replay old events
+    guard seq > last else { return }
+    lastEventSeq = seq
+    Notifier.shared.post(ev["title"] as? String ?? "Netleash", ev["text"] as? String ?? "")
+}
+
 func readState() -> State {
     guard let data = FileManager.default.contents(atPath: statusPath),
           let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -99,6 +113,39 @@ func launchctl(_ args: [String]) {
     p.waitUntilExit()
 }
 
+// MARK: - Notifications (shown under the Netleash name and icon)
+
+final class Notifier: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = Notifier()
+    /// UNUserNotificationCenter needs a real app bundle; a bare binary falls back to AppleScript.
+    private var usable: Bool { Bundle.main.bundlePath.hasSuffix(".app") }
+
+    func setup() {
+        guard usable else { return }
+        let c = UNUserNotificationCenter.current()
+        c.delegate = self
+        c.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func post(_ title: String, _ body: String) {
+        guard usable else {
+            let esc: (String) -> String = { $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
+            var err: NSDictionary?
+            NSAppleScript(source: "display notification \"\(esc(body))\" with title \"\(esc(title))\"")?.executeAndReturnError(&err)
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
+    }
+}
+
 // MARK: - App
 
 final class App: NSObject, NSApplicationDelegate {
@@ -113,6 +160,7 @@ final class App: NSObject, NSApplicationDelegate {
     let background = CommandLine.arguments.contains("--background")
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        Notifier.shared.setup()
         let menu = NSMenu()
         header.isEnabled = false
         menu.addItem(header)
@@ -156,6 +204,7 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     func refresh() {
+        handleEvents()
         let s = readState()
         header.title = s.title
         item.button?.toolTip = s.title
@@ -278,9 +327,7 @@ final class App: NSObject, NSApplicationDelegate {
                 self.offerUpdate(current: current, latest: latest, url: r["url"] as? String)
             } else if UserDefaults.standard.string(forKey: notifiedKey) != latest {
                 UserDefaults.standard.set(latest, forKey: notifiedKey)
-                let script = "display notification \"Version \(latest) is available. Open the Netleash menu to update.\" with title \"Netleash update\""
-                var err: NSDictionary?
-                NSAppleScript(source: script)?.executeAndReturnError(&err)
+                Notifier.shared.post("Netleash update", "Version \(latest) is available. Open the Netleash menu to update.")
             }
         }
     }
