@@ -7,7 +7,6 @@ package netinfo
 import (
 	"net/netip"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -16,7 +15,6 @@ var (
 	utunRe       = regexp.MustCompile(`utun[0-9]+`)
 	nameserverRe = regexp.MustCompile(`nameserver\[[0-9]+\] : ([0-9.]+)`)
 	physIfaceRe  = regexp.MustCompile(`^en[0-9]+$`)
-	utunExactRe  = regexp.MustCompile(`^utun[0-9]+$`)
 
 	cgnat     = netip.MustParsePrefix("100.64.0.0/10")
 	linkLocal = netip.MustParsePrefix("169.254.0.0/16")
@@ -163,54 +161,4 @@ func PhysicalInterfaces(ifconfigList string) []string {
 		}
 	}
 	return out
-}
-
-// PickTunnel chooses the tunnel interface to allow. explicit are utunN names found on the VPN app's command lines (tried
-// first); all are every utunN on the system. A tunnel qualifies when it is up, has an IPv4 address and carries a
-// default-like route. ifconfigOf returns `ifconfig <name>` output. Returns "" when nothing qualifies.
-func PickTunnel(explicit, all []string, netstat string, ifconfigOf func(string) string) string {
-	ok := func(name string) bool { return InterfaceIsUp(ifconfigOf(name)) && HasDefaultRoute(netstat, name) }
-	for _, c := range explicit {
-		if ok(c) {
-			return c
-		}
-	}
-	// The VPN did not name its interface (e.g. WireGuard asks the kernel for "utun" and the number is chosen later):
-	// take the tunnel that carries the default route.
-	for _, c := range all {
-		if ok(c) {
-			return c
-		}
-	}
-	return ""
-}
-
-// UtunInterfaces filters the output of `ifconfig -l` down to utunN names, in numeric order.
-func UtunInterfaces(ifconfigList string) []string {
-	var out []string
-	for _, n := range strings.Fields(ifconfigList) {
-		if utunExactRe.MatchString(n) {
-			out = append(out, n)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		a, _ := strconv.Atoi(strings.TrimPrefix(out[i], "utun"))
-		b, _ := strconv.Atoi(strings.TrimPrefix(out[j], "utun"))
-		return a < b
-	})
-	return out
-}
-
-// OnLink reports whether addr lies inside one of the given directly attached subnets.
-func OnLink(addr string, subnets []netip.Prefix) bool {
-	a, err := netip.ParseAddr(addr)
-	if err != nil {
-		return false
-	}
-	for _, p := range subnets {
-		if p.Contains(a) {
-			return true
-		}
-	}
-	return false
 }

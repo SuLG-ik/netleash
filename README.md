@@ -25,7 +25,7 @@ Right now the project works **only** with this exact stack:
 | Component | Supported |
 |---|---|
 | Protected application | **Claude desktop app** (`/Applications/Claude.app`) — chat, Claude Code, agents, the built-in browser, MCP servers and everything they spawn |
-| VPN | **AmneziaVPN** (`/Applications/AmneziaVPN.app`, tested with 5.x). **AmneziaWG** and the WireGuard/AmneziaWG protocol inside AmneziaVPN are *expected* to work (the tunnel is found by its default route) but have **not been verified** yet |
+| VPN | **AmneziaVPN** (`/Applications/AmneziaVPN.app`, tested with 5.x) |
 | AmneziaVPN **Kill Switch** | **must be OFF** (see [why](#why-the-amnezia-kill-switch-must-be-off)) |
 | OS | macOS 26 (Tahoe), Apple Silicon (arm64). Other versions and Intel Macs are untested |
 
@@ -187,22 +187,6 @@ so programs that reload the main ruleset do not remove it.
 Pure logic (pf rule generation, parsing of `netstat`/`scutil`/`ifconfig`, config) lives in `internal/` with unit tests,
 including tests that the generated rules are fail-closed.
 
-## What happens when…
-
-- **You switch to another Wi-Fi / Ethernet / USB tethering while the VPN stays up.** Nothing changes for the protected app: its
-  only route is the tunnel interface, whatever physical network carries the tunnel. New physical interfaces are picked up
-  within ~0.5 s (for the DNS rules); even before that, the app's own traffic cannot use them.
-- **The VPN reconnects after a network change.** While the tunnel is down the app is blocked; when the tunnel is back
-  (possibly with a new `utunN`), the daemon points the rule at it within ~0.5 s and the app recovers by itself.
-- **You connect a different VPN or tunnel** (e.g. WireGuard/AmneziaWG, Tailscale exit node). In the default mode the tunnel is
-  accepted only while one of the configured VPN apps is running; its interface is found from the app's command line or, when
-  the app does not name it (WireGuard asks the kernel for "utun"), as the tunnel that carries the default route. A tunnel
-  from an app that is not configured is **not** accepted: the protected app stays blocked (fail-closed). Add the app to
-  `vpnAppPaths`, or set `"vpnDetection": "any"` to accept any default-route tunnel.
-- **Two tunnels carry the default route at once.** The one with the lowest `utun` number is taken.
-- **The new network's own DNS server has the same address as a VPN DNS server** (e.g. a carrier network with `100.64.0.1`).
-  Addresses that are inside the current network's subnet are never blocked, so DNS keeps working there.
-
 ## Configuration
 
 `/usr/local/etc/netleash/config.json` (all keys optional):
@@ -210,8 +194,7 @@ including tests that the generated rules are fail-closed.
 | Key | Default | Meaning |
 |---|---|---|
 | `protectedAppPath` | `/Applications/Claude.app` | application to confine |
-| `vpnAppPaths` | `["/Applications/AmneziaVPN.app", "/Applications/AmneziaWG.app"]` | VPN apps whose tunnel is the only allowed route (`vpnAppPath` is the old single-path form and still works) |
-| `vpnDetection` | `"app"` | `"app"`: a process of one of these apps must be running; `"any"`: any tunnel that carries the default route is accepted, whatever app made it (Tailscale exit node, WireGuard, Clash TUN, …) |
+| `vpnAppPath` | `/Applications/AmneziaVPN.app` | VPN whose tunnel is the only allowed route |
 | `enforceLauncherOnly` | `true` | kill protected-app processes started outside the launcher |
 | `notify` | `true` | system notifications |
 | `loopbackBlockPorts` | `[7890, 7891, 7892, 7897, 9090, 9097]` | local proxy ports the app must not reach |
