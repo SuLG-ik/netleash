@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/svg/logo-horizontal-dark.svg">
+    <img alt="Netleash" src="brand/svg/logo-horizontal.svg" height="72">
+  </picture>
+</p>
+
 # Netleash
 
 *A kernel-level network leash for macOS apps: an application may reach the network only through the route you choose.*
@@ -215,7 +222,7 @@ the [GNU GPL v3](LICENSE).
   terms or of applicable law, and must not be used or promoted as such.** It is a generic network-confinement tool.
 - **Trademarks.** "Claude" and "Anthropic" are trademarks of Anthropic, PBC; "AmneziaVPN" is a trademark of its
   respective owner. They are used here only to describe compatibility. This is an independent, unofficial project.
-  The launcher copies the app icon from *your own* installed Claude.app at install time; no third-party artwork is
+  The Netleash logo and icons are original artwork under the same license as the code; no third-party artwork is
   distributed in this repository.
 - **No support obligation.** Issues and pull requests are welcome, but the maintainer decides what is accepted and
   owes nobody a response, a fix, or a release schedule.

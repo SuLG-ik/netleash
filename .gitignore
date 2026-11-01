@@ -5,3 +5,6 @@ build/
 *.dmg
 *.log
 .claude/
+
+# brand review artefacts
+brand/**/_*

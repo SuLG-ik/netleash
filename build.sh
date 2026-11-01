@@ -53,6 +53,9 @@ if command -v swiftc >/dev/null; then
  <key>LSMinimumSystemVersion</key><string>13.0</string>
 </dict></plist>
 P
+  # Brand assets: app icon and menu bar glyphs (see brand/)
+  cp brand/Netleash.icns "$APP/Contents/Resources/icon.icns"
+  cp brand/png/menubar-up@2x.png brand/png/menubar-down@2x.png brand/png/menubar-warn@2x.png "$APP/Contents/Resources/"
   codesign -f -s - "$APP" 2>/dev/null || true
 else
   echo "swiftc not found: building without the menu bar app (the CLI and daemon still work)"

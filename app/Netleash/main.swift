@@ -28,11 +28,18 @@ enum State {
     case down            // VPN is down, network of the protected app is blocked
     case broken(String)  // daemon not running / pf not armed
 
-    var symbol: String {
+    var symbol: String {   // SF Symbol, used only as a fallback if the bundled glyph is missing
         switch self {
         case .up: return "lock.shield.fill"
         case .down: return "lock.slash.fill"
         case .broken: return "exclamationmark.triangle.fill"
+        }
+    }
+    var glyph: String {    // bundled menu bar glyph (Resources/menubar-<glyph>@2x.png, drawn at 18 pt)
+        switch self {
+        case .up: return "up"
+        case .down: return "down"
+        case .broken: return "warn"
         }
     }
     var color: NSColor {
@@ -144,8 +151,14 @@ final class App: NSObject, NSApplicationDelegate {
         let key = s.symbol + s.title
         guard key != last else { return }
         last = key
-        let img = NSImage(systemSymbolName: s.symbol, accessibilityDescription: s.title)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [s.color]))
+        var img: NSImage?
+        if let path = Bundle.main.path(forResource: "menubar-\(s.glyph)@2x", ofType: "png"), let g = NSImage(contentsOfFile: path) {
+            g.size = NSSize(width: 18, height: 18)   // the file is 36 px: 2x of 18 pt
+            img = g
+        } else {
+            img = NSImage(systemSymbolName: s.symbol, accessibilityDescription: s.title)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [s.color]))
+        }
         img?.isTemplate = false
         item.button?.image = img
     }

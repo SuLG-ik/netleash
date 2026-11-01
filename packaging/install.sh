@@ -83,8 +83,6 @@ if [ -d Netleash.app ]; then
   pkill -u "$USER_UID" -f "Netleash.app/Contents/MacOS" 2>/dev/null || true
   APP="/Applications/Netleash.app"
   rm -rf "$APP"; cp -R Netleash.app "$APP"
-  # The icon is copied from the user's own Claude.app at install time; no third-party artwork is shipped.
-  cp /Applications/Claude.app/Contents/Resources/electron.icns "$APP/Contents/Resources/icon.icns" 2>/dev/null || true
   codesign -f -s - "$APP" 2>/dev/null || true
   chown -R "$USER_NAME" "$APP"
 
